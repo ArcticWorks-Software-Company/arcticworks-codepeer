@@ -1,0 +1,22 @@
+{
+  "name": "go-error-ignored",
+  "language": "go",
+  "diff": "diff --git a/config.go b/config.go\nnew file mode 100644\nindex 0000000..2222222\n--- /dev/null\n+++ b/config.go\n@@ -0,0 +1,8 @@\n+package main\n+\n+import \"os\"\n+\n+func loadConfig() []byte {\n+\tdata, _ := os.ReadFile(\"config.json\")\n+\treturn data\n+}\n",
+  "files": [
+    {
+      "path": "config.go",
+      "status": "added",
+      "additions": 8,
+      "deletions": 0,
+      "patch": "@@ -0,0 +1,8 @@\n+package main\n+\n+import \"os\"\n+\n+func loadConfig() []byte {\n+\tdata, _ := os.ReadFile(\"config.json\")\n+\treturn data\n+}\n"
+    }
+  ],
+  "defects": [
+    {
+      "file": "config.go",
+      "line": 6,
+      "description": "error from os.ReadFile is discarded; a missing or unreadable config is silently treated as empty config",
+      "severity": "high"
+    }
+  ]
+}

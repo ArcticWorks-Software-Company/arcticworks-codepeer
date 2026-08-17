@@ -1,0 +1,22 @@
+{
+  "name": "go-sql-injection",
+  "language": "go",
+  "diff": "diff --git a/db.go b/db.go\nnew file mode 100644\nindex 0000000..3333333\n--- /dev/null\n+++ b/db.go\n@@ -0,0 +1,8 @@\n+package main\n+\n+import \"database/sql\"\n+\n+func findUser(db *sql.DB, name string) {\n+\tq := \"SELECT * FROM users WHERE name = '\" + name + \"'\"\n+\tdb.Query(q)\n+}\n",
+  "files": [
+    {
+      "path": "db.go",
+      "status": "added",
+      "additions": 8,
+      "deletions": 0,
+      "patch": "@@ -0,0 +1,8 @@\n+package main\n+\n+import \"database/sql\"\n+\n+func findUser(db *sql.DB, name string) {\n+\tq := \"SELECT * FROM users WHERE name = '\" + name + \"'\"\n+\tdb.Query(q)\n+}\n"
+    }
+  ],
+  "defects": [
+    {
+      "file": "db.go",
+      "line": 6,
+      "description": "SQL built by string concatenation of untrusted input; use parameterized queries to prevent SQL injection",
+      "severity": "critical"
+    }
+  ]
+}

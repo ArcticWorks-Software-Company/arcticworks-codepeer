@@ -1,0 +1,22 @@
+{
+  "name": "js-null-access",
+  "language": "javascript",
+  "diff": "diff --git a/cart.js b/cart.js\nnew file mode 100644\nindex 0000000..5555555\n--- /dev/null\n+++ b/cart.js\n@@ -0,0 +1,4 @@\n+function getCartSize(user) {\n+  const order = user.getLastOrder();\n+  return order.items.length;\n+}\n",
+  "files": [
+    {
+      "path": "cart.js",
+      "status": "added",
+      "additions": 4,
+      "deletions": 0,
+      "patch": "@@ -0,0 +1,4 @@\n+function getCartSize(user) {\n+  const order = user.getLastOrder();\n+  return order.items.length;\n+}\n"
+    }
+  ],
+  "defects": [
+    {
+      "file": "cart.js",
+      "line": 3,
+      "description": "getLastOrder() can return null for a user with no orders; accessing order.items throws a TypeError",
+      "severity": "high"
+    }
+  ]
+}

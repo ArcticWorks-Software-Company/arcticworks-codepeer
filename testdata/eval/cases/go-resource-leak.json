@@ -1,0 +1,22 @@
+{
+  "name": "go-resource-leak",
+  "language": "go",
+  "diff": "diff --git a/http.go b/http.go\nnew file mode 100644\nindex 0000000..7777777\n--- /dev/null\n+++ b/http.go\n@@ -0,0 +1,12 @@\n+package main\n+\n+import \"net/http\"\n+\n+func readAll(url string) {\n+\tresp, err := http.Get(url)\n+\tif err != nil {\n+\t\treturn\n+\t}\n+\tbuf := make([]byte, 4096)\n+\tresp.Body.Read(buf)\n+}\n",
+  "files": [
+    {
+      "path": "http.go",
+      "status": "added",
+      "additions": 12,
+      "deletions": 0,
+      "patch": "@@ -0,0 +1,12 @@\n+package main\n+\n+import \"net/http\"\n+\n+func readAll(url string) {\n+\tresp, err := http.Get(url)\n+\tif err != nil {\n+\t\treturn\n+\t}\n+\tbuf := make([]byte, 4096)\n+\tresp.Body.Read(buf)\n+}\n"
+    }
+  ],
+  "defects": [
+    {
+      "file": "http.go",
+      "line": 11,
+      "description": "resp.Body is never closed; the connection leaks and cannot be reused",
+      "severity": "medium"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "name": "go-off-by-one",
+  "language": "go",
+  "diff": "diff --git a/list.go b/list.go\nnew file mode 100644\nindex 0000000..8888888\n--- /dev/null\n+++ b/list.go\n@@ -0,0 +1,10 @@\n+package main\n+\n+func has(items []string, target string) bool {\n+\tfor i := 0; i <= len(items); i++ {\n+\t\tif items[i] == target {\n+\t\t\treturn true\n+\t\t}\n+\t}\n+\treturn false\n+}\n",
+  "files": [
+    {
+      "path": "list.go",
+      "status": "added",
+      "additions": 10,
+      "deletions": 0,
+      "patch": "@@ -0,0 +1,10 @@\n+package main\n+\n+func has(items []string, target string) bool {\n+\tfor i := 0; i <= len(items); i++ {\n+\t\tif items[i] == target {\n+\t\t\treturn true\n+\t\t}\n+\t}\n+\treturn false\n+}\n"
+    }
+  ],
+  "defects": [
+    {
+      "file": "list.go",
+      "line": 4,
+      "description": "loop condition i <= len(items) reads one element past the end and panics with index out of range; use i < len(items)",
+      "severity": "high"
+    }
+  ]
+}

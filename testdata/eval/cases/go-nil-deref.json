@@ -1,0 +1,22 @@
+{
+  "name": "go-nil-deref",
+  "language": "go",
+  "diff": "diff --git a/fetch.go b/fetch.go\nnew file mode 100644\nindex 0000000..1111111\n--- /dev/null\n+++ b/fetch.go\n@@ -0,0 +1,9 @@\n+package main\n+\n+import \"net/http\"\n+\n+func fetch(url string) string {\n+\tresp, err := http.Get(url)\n+\t_ = err\n+\treturn resp.Status\n+}\n",
+  "files": [
+    {
+      "path": "fetch.go",
+      "status": "added",
+      "additions": 9,
+      "deletions": 0,
+      "patch": "@@ -0,0 +1,9 @@\n+package main\n+\n+import \"net/http\"\n+\n+func fetch(url string) string {\n+\tresp, err := http.Get(url)\n+\t_ = err\n+\treturn resp.Status\n+}\n"
+    }
+  ],
+  "defects": [
+    {
+      "file": "fetch.go",
+      "line": 8,
+      "description": "err from http.Get is discarded and resp is dereferenced; when the request fails resp can be unusable and the error is lost",
+      "severity": "high"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "name": "go-race-counter",
+  "language": "go",
+  "diff": "diff --git a/state.go b/state.go\nnew file mode 100644\nindex 0000000..4444444\n--- /dev/null\n+++ b/state.go\n@@ -0,0 +1,9 @@\n+package main\n+\n+var counters = map[string]int{}\n+\n+func inc(key string) {\n+\tgo func() {\n+\t\tcounters[key]++\n+\t}()\n+}\n",
+  "files": [
+    {
+      "path": "state.go",
+      "status": "added",
+      "additions": 9,
+      "deletions": 0,
+      "patch": "@@ -0,0 +1,9 @@\n+package main\n+\n+var counters = map[string]int{}\n+\n+func inc(key string) {\n+\tgo func() {\n+\t\tcounters[key]++\n+\t}()\n+}\n"
+    }
+  ],
+  "defects": [
+    {
+      "file": "state.go",
+      "line": 7,
+      "description": "concurrent writes to a shared map from a goroutine race and can crash with 'concurrent map writes'; guard with a mutex or sync.Map",
+      "severity": "high"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "name": "py-swallow-exception",
+  "language": "python",
+  "diff": "diff --git a/store.py b/store.py\nnew file mode 100644\nindex 0000000..6666666\n--- /dev/null\n+++ b/store.py\n@@ -0,0 +1,6 @@\n+def save(data, path):\n+    try:\n+        with open(path, \"w\") as f:\n+            f.write(data)\n+    except:\n+        pass\n",
+  "files": [
+    {
+      "path": "store.py",
+      "status": "added",
+      "additions": 6,
+      "deletions": 0,
+      "patch": "@@ -0,0 +1,6 @@\n+def save(data, path):\n+    try:\n+        with open(path, \"w\") as f:\n+            f.write(data)\n+    except:\n+        pass\n"
+    }
+  ],
+  "defects": [
+    {
+      "file": "store.py",
+      "line": 5,
+      "description": "bare except swallows every exception including KeyboardInterrupt and write failures; log or re-raise, and catch a specific exception type",
+      "severity": "medium"
+    }
+  ]
+}
