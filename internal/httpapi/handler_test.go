@@ -90,6 +90,10 @@ func (s *fakeStore) CreateRun(context.Context, int64, string, string, *int) (int
 	return 1, nil
 }
 func (s *fakeStore) CompleteRun(context.Context, int64, *domain.ReviewResult) error { return nil }
+func (s *fakeStore) RunByKey(context.Context, int64, string, string) (*domain.AnalysisRun, error) {
+	return nil, nil
+}
+func (s *fakeStore) RestartRun(context.Context, int64) error { return nil }
 func (s *fakeStore) FailRun(context.Context, int64, string) error                   { return nil }
 func (s *fakeStore) SaveFindings(context.Context, int64, []domain.Finding, func(domain.Finding) string) error {
 	return nil

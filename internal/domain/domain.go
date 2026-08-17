@@ -429,6 +429,10 @@ type Store interface {
 	// CreateRun inserts a new analysis run; returns ErrDuplicateRun if
 	// (repo_id, kind, input_sha) already exists.
 	CreateRun(ctx context.Context, repoID int64, kind, inputSHA string, prNumber *int) (int64, error)
+	// RunByKey returns the run for (repo_id, kind, input_sha), or (nil, nil).
+	RunByKey(ctx context.Context, repoID int64, kind, inputSHA string) (*AnalysisRun, error)
+	// RestartRun reopens a stalled run for re-analysis.
+	RestartRun(ctx context.Context, runID int64) error
 	CompleteRun(ctx context.Context, runID int64, result *ReviewResult) error
 	FailRun(ctx context.Context, runID int64, errMsg string) error
 	SaveFindings(ctx context.Context, runID int64, findings []Finding, hashFn func(Finding) string) error

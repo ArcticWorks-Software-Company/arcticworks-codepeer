@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/ArcticWorks-Software-Company/arcticworks-codepeer/internal/domain"
 	"github.com/jackc/pgx/v5"
@@ -246,10 +247,61 @@ func (s *Store) CompleteRun(ctx context.Context, runID int64, result *domain.Rev
 	return err
 }
 
+// RunByKey returns the run for (repo_id, kind, input_sha), or (nil, nil).
+func (s *Store) RunByKey(ctx context.Context, repoID int64, kind, inputSHA string) (*domain.AnalysisRun, error) {
+	rows, err := s.pool.Query(ctx, `SELECT id, repo_id, kind, input_sha, COALESCE(pr_number, 0), status, result, COALESCE(error, ''), created_at
+		FROM analysis_runs WHERE repo_id = $1 AND kind = $2 AND input_sha = $3`, repoID, kind, inputSHA)
+	if err != nil {
+		return nil, err
+	}
+	row, err := parseRow[runRow](rows)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	run := &domain.AnalysisRun{
+		ID:       row.ID,
+		RepoID:   row.RepoID,
+		Kind:     row.Kind,
+		InputSHA: row.InputSHA,
+		PRNumber: row.PRNumber,
+		Status:   row.Status,
+		Error:    row.Error,
+	}
+	if len(row.Result) > 0 && string(row.Result) != "null" {
+		var res domain.ReviewResult
+		if err := json.Unmarshal(row.Result, &res); err != nil {
+			return nil, err
+		}
+		run.Result = &res
+	}
+	return run, nil
+}
+
+// RestartRun reopens a stalled run for re-analysis.
+func (s *Store) RestartRun(ctx context.Context, runID int64) error {
+	_, err := s.pool.Exec(ctx, `UPDATE analysis_runs SET status = 'running', error = NULL, finished_at = NULL, started_at = now() WHERE id = $1`, runID)
+	return err
+}
+
 // FailRun marks a run failed with an error message.
 func (s *Store) FailRun(ctx context.Context, runID int64, errMsg string) error {
 	_, err := s.pool.Exec(ctx, `UPDATE analysis_runs SET status = 'failed', error = $2, finished_at = now() WHERE id = $1`, runID, errMsg)
 	return err
+}
+
+type runRow struct {
+	ID        int64     `db:"id"`
+	RepoID    int64     `db:"repo_id"`
+	Kind      string    `db:"kind"`
+	InputSHA  string    `db:"input_sha"`
+	PRNumber  int       `db:"pr_number"`
+	Status    string    `db:"status"`
+	Result    []byte    `db:"result"`
+	Error     string    `db:"error"`
+	CreatedAt time.Time `db:"created_at"`
 }
 
 const insertFindingSQL = `INSERT INTO findings (run_id, finding_id, file, line, severity, category, title, body, suggestion, confidence, actionable, dedupe_hash)

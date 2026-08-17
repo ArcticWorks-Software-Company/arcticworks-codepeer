@@ -128,10 +128,16 @@ func (p *Pipeline) AnalyzePR(ctx context.Context, payload domain.AnalyzePRPayloa
 
 	runID, err := p.Store.CreateRun(ctx, repo.ID, "pr", payload.HeadSHA, &payload.PRNumber)
 	if err != nil {
-		if errors.Is(err, store.ErrDuplicateRun) {
+		if !errors.Is(err, store.ErrDuplicateRun) {
+			return nil, err
+		}
+		runID, err = p.recoverRun(ctx, repo.ID, "pr", payload.HeadSHA)
+		if err != nil {
+			return nil, err
+		}
+		if runID == 0 {
 			return skip("already analyzed", nil), nil
 		}
-		return nil, err
 	}
 
 	diffByFile, _ := SplitDiffByFile(rawDiff)
@@ -235,10 +241,16 @@ func (p *Pipeline) AnalyzePush(ctx context.Context, payload domain.AnalyzePushPa
 
 	runID, err := p.Store.CreateRun(ctx, repo.ID, "push", payload.After, nil)
 	if err != nil {
-		if errors.Is(err, store.ErrDuplicateRun) {
+		if !errors.Is(err, store.ErrDuplicateRun) {
+			return nil, err
+		}
+		runID, err = p.recoverRun(ctx, repo.ID, "push", payload.After)
+		if err != nil {
+			return nil, err
+		}
+		if runID == 0 {
 			return skip("already analyzed", nil), nil
 		}
-		return nil, err
 	}
 
 	patchMap := map[string]string{}
@@ -280,10 +292,32 @@ func (p *Pipeline) AnalyzePush(ctx context.Context, payload domain.AnalyzePushPa
 }
 
 type chunkOutcome struct {
-	results      []domain.ReviewResult
-	failed       int
-	failedFiles  []string
-	findings     []domain.FindingRecord
+	results     []domain.ReviewResult
+	failed      int
+	failedFiles []string
+	findings    []domain.FindingRecord
+}
+
+// recoverRun resolves a duplicate run key: terminal runs return 0 (already
+// analyzed), stalled runs are restarted and reused.
+func (p *Pipeline) recoverRun(ctx context.Context, repoID int64, kind, sha string) (int64, error) {
+	existing, err := p.Store.RunByKey(ctx, repoID, kind, sha)
+	if err != nil {
+		return 0, err
+	}
+	if existing == nil {
+		return 0, nil
+	}
+	switch existing.Status {
+	case "done", "failed":
+		return 0, nil
+	default:
+		slog.Warn("restarting stalled analysis run", "run", existing.ID, "kind", kind, "sha", sha)
+		if err := p.Store.RestartRun(ctx, existing.ID); err != nil {
+			return 0, err
+		}
+		return existing.ID, nil
+	}
 }
 
 type chunkReview struct {

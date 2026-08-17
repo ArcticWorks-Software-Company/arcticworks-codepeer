@@ -220,6 +220,10 @@ func (s *fakeStore) CompleteRun(_ context.Context, runID int64, _ *domain.Review
 	s.completed = append(s.completed, runID)
 	return nil
 }
+func (s *fakeStore) RunByKey(context.Context, int64, string, string) (*domain.AnalysisRun, error) {
+	return nil, nil
+}
+func (s *fakeStore) RestartRun(context.Context, int64) error { return nil }
 func (s *fakeStore) FailRun(_ context.Context, runID int64, _ string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
