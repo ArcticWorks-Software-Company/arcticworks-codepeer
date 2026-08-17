@@ -64,6 +64,14 @@ const reviewSchema = `{
 }`
 
 func validateResult(r *domain.ReviewResult) error {
+	if r.Status == "" {
+		slog.Warn("llm: empty review status, inferring from findings")
+		if len(r.Findings) > 0 {
+			r.Status = domain.StatusChangesRequested
+		} else {
+			r.Status = domain.StatusNoFindings
+		}
+	}
 	switch r.Status {
 	case domain.StatusApproved, domain.StatusChangesRequested, domain.StatusNoFindings:
 	default:
