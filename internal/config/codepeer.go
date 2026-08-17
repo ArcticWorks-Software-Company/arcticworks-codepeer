@@ -30,6 +30,7 @@ type rawRepoConfig struct {
 	IncludeNits        *bool    `yaml:"include_nits"`
 	CustomInstructions []string `yaml:"custom_instructions"`
 	InstructionFiles   []string `yaml:"instruction_files"`
+	Agents             []string `yaml:"agents"`
 }
 
 // Parse decodes .codepeer.yml content into a RepoConfig, overlaying set
@@ -95,6 +96,18 @@ func Parse(data []byte) (domain.RepoConfig, error) {
 	}
 	if raw.InstructionFiles != nil {
 		cfg.InstructionFiles = raw.InstructionFiles
+	}
+	if raw.Agents != nil {
+		valid := map[string]bool{
+			"security": true, "correctness": true, "performance": true,
+			"maintainability": true, "ux": true,
+		}
+		for _, a := range raw.Agents {
+			if !valid[a] {
+				return domain.RepoConfig{}, fmt.Errorf("invalid agent %q: must be one of security, correctness, performance, maintainability, ux", a)
+			}
+		}
+		cfg.Agents = append([]string{}, raw.Agents...)
 	}
 
 	return cfg, nil

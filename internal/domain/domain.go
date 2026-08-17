@@ -114,12 +114,32 @@ type ReviewRequest struct {
 	Context      map[string]string // path -> neighboring context (full file or trimmed)
 	Instructions string            // repo standards, e.g. AGENTS.md content
 	Config       ReviewConfig
+	// Focus is an optional specialization block that narrows the review to
+	// one expert domain (security, correctness, ...). Empty = general review.
+	Focus string
+}
+
+// CompileInput is the lead-agent compile request: candidate findings from
+// specialist agents, to be merged into the final review result.
+type CompileInput struct {
+	RepoOwner   string
+	RepoName    string
+	PRNumber    int
+	PRTitle     string
+	PRBody      string
+	HeadSHA     string
+	Files       []ChangedFile
+	Candidates  []Finding
+	Config      ReviewConfig
 }
 
 // Reviewer performs one analysis pass. Implementations must be safe for
 // concurrent use.
 type Reviewer interface {
 	Review(ctx context.Context, req ReviewRequest) (ReviewResult, error)
+	// Compile merges specialist-agent candidate findings into the final
+	// result: dedupes, calibrates severity, writes the overall summary.
+	Compile(ctx context.Context, in CompileInput) (ReviewResult, error)
 }
 
 // RepoConfig is the parsed .codepeer.yml.
@@ -136,17 +156,24 @@ type RepoConfig struct {
 	IncludeNits        bool     `yaml:"include_nits"`
 	CustomInstructions []string `yaml:"custom_instructions"`
 	InstructionFiles   []string `yaml:"instruction_files"`
+	// Agents lists the specialist review agents to run. Empty list disables
+	// multi-agent review (single general pass). Missing key = defaults.
+	Agents []string `yaml:"agents"`
 }
+
+// DefaultAgents is the default specialist agent set.
+var DefaultAgents = []string{"security", "correctness", "performance", "maintainability", "ux"}
 
 // DefaultRepoConfig returns the built-in defaults.
 func DefaultRepoConfig() RepoConfig {
 	return RepoConfig{
-		Enabled:     true,
-		Mode:        "pr",
-		Strictness:  "balanced",
-		MaxFindings: 10,
-		PerFileCap:  3,
-		IncludeNits: false,
+		Enabled:       true,
+		Mode:          "pr",
+		Strictness:    "balanced",
+		MaxFindings:   10,
+		PerFileCap:    3,
+		IncludeNits:   false,
+		Agents:        append([]string{}, DefaultAgents...),
 	}
 }
 

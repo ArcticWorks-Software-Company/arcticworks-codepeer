@@ -131,6 +131,9 @@ skip_title_keywords: ["WIP"]
 max_findings: 10
 per_file_cap: 3
 include_nits: false
+# Specialist review agents run in parallel, then a lead agent compiles the
+# findings. agents: [] reverts to a single general review pass.
+agents: [security, correctness, performance, maintainability, ux]
 custom_instructions:
   - "Always check for SQL injection"
 instruction_files: ["AGENTS.md"]

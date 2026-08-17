@@ -3,6 +3,7 @@ package analysis
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -70,6 +71,7 @@ func sampleFiles() []domain.ChangedFile {
 type fakeReviewer struct {
 	mu       sync.Mutex
 	calls    int
+	compiles int
 	findings []domain.Finding
 	err      error
 }
@@ -82,7 +84,38 @@ func (f *fakeReviewer) Review(ctx context.Context, req domain.ReviewRequest) (do
 		return domain.ReviewResult{}, f.err
 	}
 	res := domain.ReviewResult{Summary: "looks reasonable", Status: domain.StatusNoFindings}
-	res.Findings = append(res.Findings, f.findings...)
+	for _, finding := range f.findings {
+		if req.Focus == "" {
+			res.Findings = append(res.Findings, finding)
+			continue
+		}
+		switch {
+		case strings.Contains(req.Focus, "SECURITY") && strings.Contains(finding.Title, "Secret"):
+			res.Findings = append(res.Findings, finding)
+		case strings.Contains(req.Focus, "CORRECTNESS") && !strings.Contains(finding.Title, "Secret"):
+			res.Findings = append(res.Findings, finding)
+		}
+	}
+	if len(res.Findings) > 0 {
+		res.Status = domain.StatusChangesRequested
+	}
+	return res, nil
+}
+
+func (f *fakeReviewer) Compile(ctx context.Context, in domain.CompileInput) (domain.ReviewResult, error) {
+	f.mu.Lock()
+	f.compiles++
+	f.mu.Unlock()
+	res := domain.ReviewResult{Summary: "compiled summary", Status: domain.StatusNoFindings}
+	seen := map[string]bool{}
+	for _, c := range in.Candidates {
+		key := fmt.Sprintf("%s|%d|%s", c.File, c.Line, c.Title)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		res.Findings = append(res.Findings, c)
+	}
 	if len(res.Findings) > 0 {
 		res.Status = domain.StatusChangesRequested
 	}
@@ -304,7 +337,15 @@ func cannedFindings() []domain.Finding {
 }
 
 func newTestPipeline(reviewer *fakeReviewer, gh *fakeGitHub, st *fakeStore) *Pipeline {
-	return &Pipeline{Reviewer: reviewer, GitHub: gh, Store: st, Strictness: "balanced", MaxFindings: 10, PerFileCap: 3}
+	return &Pipeline{
+		Reviewer:    reviewer,
+		GitHub:      gh,
+		Store:       st,
+		Strictness:  "balanced",
+		MaxFindings: 10,
+		PerFileCap:  3,
+		Agents:      []string{},
+	}
 }
 
 func TestAnalyzePRHappyPath(t *testing.T) {
@@ -604,5 +645,71 @@ func TestPipelineChunkErrorPropagates(t *testing.T) {
 	}
 	if len(st.failed) != 1 {
 		t.Errorf("FailRun calls = %d, want 1", len(st.failed))
+	}
+}
+
+func TestMultiAgentReview(t *testing.T) {
+	rev := &fakeReviewer{findings: []domain.Finding{
+		{ID: "S1", File: "handlers.go", Line: 12, Severity: domain.SeverityHigh, Category: domain.CategoryBug,
+			Title: "Secret in log", Body: "Logs a token.", Confidence: 0.9, Actionable: true},
+		{ID: "C1", File: "handlers.go", Line: 12, Severity: domain.SeverityMedium, Category: domain.CategoryBug,
+			Title: "Off-by-one", Body: "Loop boundary.", Confidence: 0.8, Actionable: true},
+	}}
+	gh := &fakeGitHub{
+		pr:      domain.PRInfo{Number: 5, Title: "feat", State: "open", HeadSHA: "abc123", BaseRef: "main"},
+		rawDiff: sampleDiff,
+		files:   sampleFiles(),
+	}
+	st := newFakeStore(testRepo())
+	p := newTestPipeline(rev, gh, st)
+	p.Agents = []string{"security", "correctness"}
+
+	out, err := p.AnalyzePR(context.Background(), domain.AnalyzePRPayload{
+		RepoID: 7, RepoOwner: "acme", RepoName: "core", PRNumber: 5, HeadSHA: "abc123",
+	})
+	if err != nil {
+		t.Fatalf("AnalyzePR: %v", err)
+	}
+	if out.Skipped != "" {
+		t.Fatalf("unexpected skip: %q", out.Skipped)
+	}
+	// 2 agents x 1 chunk
+	if rev.callCount() != 2 {
+		t.Fatalf("reviewer calls = %d, want 2 (one per agent)", rev.callCount())
+	}
+	if rev.compiles != 1 {
+		t.Fatalf("compile calls = %d, want 1", rev.compiles)
+	}
+	if out.Result.Summary != "compiled summary" {
+		t.Errorf("summary = %q, want compiled result to win", out.Result.Summary)
+	}
+	found := map[string]domain.Category{}
+	for _, f := range out.Result.Findings {
+		found[f.Title] = f.Category
+	}
+	if !(found["Secret in log"] == domain.CategorySecurity) {
+		t.Errorf("security finding category = %q, want security", found["Secret in log"])
+	}
+	if !(found["Off-by-one"] == domain.CategoryBug) {
+		t.Errorf("correctness finding category = %q, want bug", found["Off-by-one"])
+	}
+	if len(found) != 2 {
+		t.Errorf("compiled findings missing: %v", found)
+	}
+}
+
+func TestAgentSpecsSelection(t *testing.T) {
+	if got := agentSpecs([]string{"security", "correctness", "bogus"}); len(got) != 2 {
+		t.Errorf("agentSpecs = %d, want 2 (unknown ignored)", len(got))
+	}
+	if got := agentSpecs(nil); got != nil {
+		t.Errorf("agentSpecs(nil) = %v, want nil (legacy pass)", got)
+	}
+	if got := agentSpecs([]string{}); got != nil {
+		t.Errorf("agentSpecs(empty) = %v, want nil", got)
+	}
+	specs := agentSpecs([]string{"security"})
+	if len(specs) != 1 || specs[0].Category != domain.CategorySecurity || !strings.Contains(specs[0].Focus, "SECURITY") {
+		t.Errorf("security spec wrong: %+v", specs)
 	}
 }

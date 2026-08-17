@@ -44,6 +44,9 @@ type Pipeline struct {
 	PerFileCap         int
 	IncludeNits        bool
 	CustomInstructions []string
+	// Agents selects the specialist review agents. nil = use the repo
+	// config (default all); empty = legacy single general pass.
+	Agents []string
 }
 
 // NewPipeline builds a pipeline with balanced defaults.
@@ -144,7 +147,7 @@ func (p *Pipeline) AnalyzePR(ctx context.Context, payload domain.AnalyzePRPayloa
 	ctxFiles := BuildContext(ctx, p.GitHub, payload.RepoOwner, payload.RepoName, payload.HeadSHA, kept)
 	instructions := BuildInstructions(ctx, p.GitHub, payload.RepoOwner, payload.RepoName, payload.HeadSHA, cfg.InstructionFiles)
 
-	out, err := p.runChunks(ctx, domain.ReviewRequest{
+	out, err := p.runAgents(ctx, domain.ReviewRequest{
 		RepoOwner:    payload.RepoOwner,
 		RepoName:     payload.RepoName,
 		PRNumber:     payload.PRNumber,
@@ -156,7 +159,7 @@ func (p *Pipeline) AnalyzePR(ctx context.Context, payload domain.AnalyzePRPayloa
 		Context:      ctxFiles,
 		Instructions: instructions,
 		Config:       p.reviewConfig(cfg),
-	}, diffByFile)
+	}, diffByFile, p.selectAgents(cfg))
 	if err != nil {
 		_ = p.Store.FailRun(ctx, runID, err.Error())
 		return nil, err
@@ -260,7 +263,7 @@ func (p *Pipeline) AnalyzePush(ctx context.Context, payload domain.AnalyzePushPa
 	ctxFiles := BuildContext(ctx, p.GitHub, payload.RepoOwner, payload.RepoName, payload.After, kept)
 	instructions := BuildInstructions(ctx, p.GitHub, payload.RepoOwner, payload.RepoName, payload.After, cfg.InstructionFiles)
 
-	out, err := p.runChunks(ctx, domain.ReviewRequest{
+	out, err := p.runAgents(ctx, domain.ReviewRequest{
 		RepoOwner:    payload.RepoOwner,
 		RepoName:     payload.RepoName,
 		HeadSHA:      payload.After,
@@ -268,7 +271,7 @@ func (p *Pipeline) AnalyzePush(ctx context.Context, payload domain.AnalyzePushPa
 		Context:      ctxFiles,
 		Instructions: instructions,
 		Config:       p.reviewConfig(cfg),
-	}, patchMap)
+	}, patchMap, p.selectAgents(cfg))
 	if err != nil {
 		_ = p.Store.FailRun(ctx, runID, err.Error())
 		return nil, err
@@ -296,6 +299,7 @@ type chunkOutcome struct {
 	failed      int
 	failedFiles []string
 	findings    []domain.FindingRecord
+	compiled    *domain.ReviewResult
 }
 
 // recoverRun resolves a duplicate run key: terminal runs return 0 (already
@@ -321,10 +325,123 @@ func (p *Pipeline) recoverRun(ctx context.Context, repoID int64, kind, sha strin
 }
 
 type chunkReview struct {
-	files   []domain.ChangedFile
-	diff    string
-	err     error
-	result  domain.ReviewResult
+	files  []domain.ChangedFile
+	diff   string
+	agent  string
+	err    error
+	result domain.ReviewResult
+}
+
+// runAgents runs the specialist review agents over the diff in parallel and
+// compiles their findings. An empty agents list falls back to the legacy
+// single general pass.
+func (p *Pipeline) runAgents(ctx context.Context, base domain.ReviewRequest, diffByFile map[string]string, agents []string) (*chunkOutcome, error) {
+	specs := agentSpecs(agents)
+	if len(specs) == 0 {
+		return p.runChunks(ctx, base, diffByFile)
+	}
+
+	chunks := ChunkFiles(base.Files, diffByFile)
+	type job struct {
+		spec agentSpec
+		ch   Chunk
+	}
+	jobs := make([]job, 0, len(specs)*len(chunks))
+	for _, s := range specs {
+		for _, ch := range chunks {
+			jobs = append(jobs, job{spec: s, ch: ch})
+		}
+	}
+
+	sem := make(chan struct{}, 6)
+	var mu sync.Mutex
+	out := &chunkOutcome{}
+	var wg sync.WaitGroup
+	var firstErr error
+	var errMu sync.Mutex
+	reviews := make([]chunkReview, len(jobs))
+
+	for i, j := range jobs {
+		wg.Add(1)
+		go func(idx int, j job) {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
+			defer func() { <-sem }()
+
+			req := base
+			req.Diff = j.ch.DiffText
+			req.Files = j.ch.Files
+			req.Focus = j.spec.Focus
+			res, err := p.Reviewer.Review(ctx, req)
+			if err != nil {
+				slog.Warn("agent review failed, retrying once",
+					"agent", j.spec.Name, "files", filePaths(j.ch.Files), "err", err)
+				time.Sleep(2 * time.Second)
+				res, err = p.Reviewer.Review(ctx, req)
+			}
+			if err == nil {
+				for k := range res.Findings {
+					if j.spec.Category != "" {
+						res.Findings[k].Category = j.spec.Category
+					}
+				}
+			}
+			mu.Lock()
+			reviews[idx] = chunkReview{files: j.ch.Files, diff: j.ch.DiffText, agent: j.spec.Name, err: err, result: res}
+			if err != nil {
+				errMu.Lock()
+				if firstErr == nil {
+					firstErr = err
+				}
+				errMu.Unlock()
+				out.failed++
+				out.failedFiles = append(out.failedFiles, filePaths(j.ch.Files)...)
+			} else {
+				out.results = append(out.results, res)
+			}
+			mu.Unlock()
+		}(i, j)
+	}
+	wg.Wait()
+
+	if len(out.results) == 0 {
+		if firstErr != nil {
+			return nil, firstErr
+		}
+		return out, nil
+	}
+	if firstErr != nil {
+		slog.Warn("some agent reviews failed after retry",
+			"failed", out.failed, "succeeded", len(out.results), "failed_files", out.failedFiles)
+	}
+
+	candidates := make([]domain.Finding, 0)
+	for _, r := range out.results {
+		candidates = append(candidates, r.Findings...)
+	}
+	candidates = dedupeFindings(candidates)
+	compiled, err := p.Reviewer.Compile(ctx, domain.CompileInput{
+		RepoOwner:  base.RepoOwner,
+		RepoName:   base.RepoName,
+		PRNumber:   base.PRNumber,
+		PRTitle:    base.PRTitle,
+		PRBody:     base.PRBody,
+		HeadSHA:    base.HeadSHA,
+		Files:      base.Files,
+		Candidates: candidates,
+		Config:     base.Config,
+	})
+	if err != nil {
+		slog.Warn("lead-agent compile failed, falling back to deterministic merge", "err", err)
+		return out, nil
+	}
+	slog.Info("multi-agent review compiled", "agents", len(specs), "candidates", len(candidates), "findings", len(compiled.Findings))
+	out.compiled = &compiled
+	return out, nil
 }
 
 func (p *Pipeline) runChunks(ctx context.Context, base domain.ReviewRequest, diffByFile map[string]string) (*chunkOutcome, error) {
@@ -397,6 +514,17 @@ func filePaths(files []domain.ChangedFile) []string {
 	return paths
 }
 
+// selectAgents resolves the specialist agent list for a run.
+func (p *Pipeline) selectAgents(cfg *domain.RepoConfig) []string {
+	if p.Agents != nil {
+		return p.Agents
+	}
+	if cfg.Agents != nil {
+		return cfg.Agents
+	}
+	return domain.DefaultAgents
+}
+
 func (p *Pipeline) reviewConfig(cfg *domain.RepoConfig) domain.ReviewConfig {
 	strictness := p.Strictness
 	if strictness == "" {
@@ -417,25 +545,29 @@ func (p *Pipeline) reviewConfig(cfg *domain.RepoConfig) domain.ReviewConfig {
 // the merged result and the list of files that failed analysis.
 func (p *Pipeline) finish(ctx context.Context, repo *domain.Repo, runID int64, out *chunkOutcome, diffByFile, ctxFiles map[string]string) (domain.ReviewResult, []string, error) {
 	var result domain.ReviewResult
-	summary := []string{}
-	allNoFindings := true
-	for _, r := range out.results {
-		if r.Summary != "" {
-			summary = append(summary, r.Summary)
+	if out.compiled != nil {
+		result = *out.compiled
+	} else {
+		summary := []string{}
+		allNoFindings := true
+		for _, r := range out.results {
+			if r.Summary != "" {
+				summary = append(summary, r.Summary)
+			}
+			if r.Status != domain.StatusNoFindings {
+				allNoFindings = false
+			}
+			result.Findings = append(result.Findings, r.Findings...)
 		}
-		if r.Status != domain.StatusNoFindings {
-			allNoFindings = false
+		result.Summary = strings.Join(summary, " ")
+		switch {
+		case len(result.Findings) > 0:
+			result.Status = domain.StatusChangesRequested
+		case allNoFindings && out.failed == 0:
+			result.Status = domain.StatusNoFindings
+		default:
+			result.Status = domain.StatusApproved
 		}
-		result.Findings = append(result.Findings, r.Findings...)
-	}
-	result.Summary = strings.Join(summary, " ")
-	switch {
-	case len(result.Findings) > 0:
-		result.Status = domain.StatusChangesRequested
-	case allNoFindings && out.failed == 0:
-		result.Status = domain.StatusNoFindings
-	default:
-		result.Status = domain.StatusApproved
 	}
 
 	partial := dedupeStrings(out.failedFiles)
