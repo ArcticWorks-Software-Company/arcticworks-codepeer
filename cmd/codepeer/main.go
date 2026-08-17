@@ -287,6 +287,12 @@ func (w *Worker) dispatch(ctx context.Context, job *domain.Job) error {
 			return fmt.Errorf("payload: %w", err)
 		}
 		return w.Poster.ClosePRIssues(ctx, p.RepoID, p.RepoOwner, p.RepoName, p.PRNumber)
+	case domain.JobIssueCmd:
+		var p domain.IssueCommandPayload
+		if err := jsonUnmarshal(job.Payload, &p); err != nil {
+			return fmt.Errorf("payload: %w", err)
+		}
+		return w.Poster.HandleIssueCommand(ctx, p)
 	default:
 		return fmt.Errorf("unknown job kind %q", job.Kind)
 	}

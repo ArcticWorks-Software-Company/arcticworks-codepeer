@@ -359,30 +359,32 @@ func (s *Store) CloseIssue(ctx context.Context, repoID int64, number int) error 
 }
 
 type issueRow struct {
-	ID         int64    `db:"id"`
-	RepoID     int64    `db:"repo_id"`
-	Number     int      `db:"number"`
-	Title      string   `db:"title"`
-	Kind       string   `db:"kind"`
-	PRNumber   int      `db:"pr_number"`
-	FindingIDs []string `db:"finding_ids"`
-	Status     string   `db:"status"`
+	ID          int64    `db:"id"`
+	RepoID      int64    `db:"repo_id"`
+	Number      int      `db:"number"`
+	Title       string   `db:"title"`
+	Kind        string   `db:"kind"`
+	PRNumber    int      `db:"pr_number"`
+	FindingIDs  []string `db:"finding_ids"`
+	Status      string   `db:"status"`
+	FixPRNumber int      `db:"fix_pr_number"`
 }
 
 func issueFromRow(row issueRow) *domain.IssueRecord {
 	return &domain.IssueRecord{
-		ID:         row.ID,
-		RepoID:     row.RepoID,
-		Number:     row.Number,
-		Title:      row.Title,
-		Kind:       row.Kind,
-		PRNumber:   row.PRNumber,
-		FindingIDs: row.FindingIDs,
-		Status:     row.Status,
+		ID:          row.ID,
+		RepoID:      row.RepoID,
+		Number:      row.Number,
+		Title:       row.Title,
+		Kind:        row.Kind,
+		PRNumber:    row.PRNumber,
+		FindingIDs:  row.FindingIDs,
+		Status:      row.Status,
+		FixPRNumber: row.FixPRNumber,
 	}
 }
 
-const issueColumns = `id, repo_id, number, title, kind, COALESCE(pr_number, 0), finding_ids, status`
+const issueColumns = `id, repo_id, number, title, kind, COALESCE(pr_number, 0), finding_ids, status, COALESCE(fix_pr_number, 0)`
 
 // OpenIssueForRepo returns the first open issue of a kind, or (nil, nil).
 func (s *Store) OpenIssueForRepo(ctx context.Context, repoID int64, kind string) (*domain.IssueRecord, error) {
@@ -413,6 +415,72 @@ func (s *Store) IssuesForPR(ctx context.Context, repoID int64, prNumber int) ([]
 	out := make([]domain.IssueRecord, 0, len(rs))
 	for _, r := range rs {
 		out = append(out, *issueFromRow(r))
+	}
+	return out, nil
+}
+
+// IssueByNumber returns a tracked issue by number, or (nil, nil).
+func (s *Store) IssueByNumber(ctx context.Context, repoID int64, number int) (*domain.IssueRecord, error) {
+	rows, err := s.pool.Query(ctx, `SELECT `+issueColumns+` FROM issues WHERE repo_id = $1 AND number = $2`, repoID, number)
+	if err != nil {
+		return nil, err
+	}
+	row, err := parseRow[issueRow](rows)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return issueFromRow(row), nil
+}
+
+// SetIssueFixPR records the fix PR number opened for an issue.
+func (s *Store) SetIssueFixPR(ctx context.Context, repoID int64, number, prNumber int) error {
+	_, err := s.pool.Exec(ctx, `UPDATE issues SET fix_pr_number = $3 WHERE repo_id = $1 AND number = $2`, repoID, number, prNumber)
+	return err
+}
+
+// FindingsForIssue returns findings linked to an issue, ordered by ID.
+func (s *Store) FindingsForIssue(ctx context.Context, repoID int64, issueNumber int) ([]domain.FindingRecord, error) {
+	rows, err := s.pool.Query(ctx, `SELECT f.id, f.run_id, f.finding_id, f.file, f.line, f.severity, f.category, f.title, f.body, f.suggestion, f.confidence, f.actionable, f.dedupe_hash, f.comment_id, f.issue_number
+		FROM findings f
+		JOIN analysis_runs r ON f.run_id = r.id
+		WHERE r.repo_id = $1 AND f.issue_number = $2
+		ORDER BY f.id`, repoID, issueNumber)
+	if err != nil {
+		return nil, err
+	}
+	rs, err := parseRows[findingRow](rows)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]domain.FindingRecord, 0, len(rs))
+	for _, r := range rs {
+		rec := domain.FindingRecord{
+			ID:          r.ID,
+			RunID:       r.RunID,
+			FindingID:   r.FindingID,
+			File:        r.File,
+			Line:        r.Line,
+			Severity:    r.Severity,
+			Category:    r.Category,
+			Title:       r.Title,
+			Body:        r.Body,
+			Confidence:  r.Confidence,
+			Actionable:  r.Actionable,
+			DedupeHash:  r.DedupeHash,
+			CommentID:   r.CommentID,
+			IssueNumber: r.IssueNumber,
+		}
+		if len(r.Suggestion) > 0 && string(r.Suggestion) != "null" {
+			var sug domain.Suggestion
+			if err := json.Unmarshal(r.Suggestion, &sug); err != nil {
+				return nil, err
+			}
+			rec.Suggestion = &sug
+		}
+		out = append(out, rec)
 	}
 	return out, nil
 }

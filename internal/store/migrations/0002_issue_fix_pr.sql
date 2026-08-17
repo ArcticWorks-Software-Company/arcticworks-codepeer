@@ -1,0 +1,1 @@
+ALTER TABLE issues ADD COLUMN IF NOT EXISTS fix_pr_number integer NOT NULL DEFAULT 0;

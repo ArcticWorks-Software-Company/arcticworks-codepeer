@@ -72,6 +72,12 @@ type fakeGitHub struct {
 	editIssues    []editIssueCall
 	reactionCalls []int64
 	reactions     map[int64][]domain.Reaction
+	fileContents  map[string]string
+	blobs         []blobCall
+	trees         []treeCall
+	commits       []commitCall
+	branches      []branchCall
+	prs           []prCall
 	nextCheckID   int64
 	nextReviewID  int64
 	nextCommentID int64
@@ -173,6 +179,76 @@ func (f *fakeGitHub) ListInstallationRepos(context.Context, int64) ([]domain.Rep
 	return nil, nil
 }
 
+type blobCall struct{ content string }
+type treeCall struct {
+	base    string
+	entries []domain.TreeEntry
+}
+type commitCall struct {
+	message string
+	tree    string
+	parents []string
+}
+type branchCall struct {
+	name string
+	sha  string
+}
+type prCall struct {
+	title string
+	body  string
+	head  string
+	base  string
+}
+
+func (f *fakeGitHub) GetBranchSHA(context.Context, string, string, string) (string, error) {
+	return "basesha", nil
+}
+
+func (f *fakeGitHub) GetCommitTreeSHA(context.Context, string, string, string) (string, error) {
+	return "basetree", nil
+}
+
+func (f *fakeGitHub) GetFileWithSHA(_ context.Context, _, _, path, _ string) (string, string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.fileContents[path], "oldblob", nil
+}
+
+func (f *fakeGitHub) CreateBlob(_ context.Context, _, _, content string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.blobs = append(f.blobs, blobCall{content})
+	return "newblob", nil
+}
+
+func (f *fakeGitHub) CreateTree(_ context.Context, _, _, base string, entries []domain.TreeEntry) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.trees = append(f.trees, treeCall{base, entries})
+	return "newtree", nil
+}
+
+func (f *fakeGitHub) CreateCommit(_ context.Context, _, _, message, tree string, parents []string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.commits = append(f.commits, commitCall{message, tree, parents})
+	return "newcommit", nil
+}
+
+func (f *fakeGitHub) CreateBranch(_ context.Context, _, _, name, sha string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.branches = append(f.branches, branchCall{name, sha})
+	return nil
+}
+
+func (f *fakeGitHub) CreatePR(_ context.Context, _, _, title, body, head, base string) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.prs = append(f.prs, prCall{title, body, head, base})
+	return 77, nil
+}
+
 type prStateKey struct {
 	repoID int64
 	number int
@@ -186,11 +262,14 @@ type learningKey struct {
 
 type fakeStore struct {
 	mu                      sync.Mutex
+	repo                    *domain.Repo
 	prStates                map[prStateKey]domain.PRState
 	issuesByRepo            map[int64][]domain.IssueRecord
 	nextIssueID             int64
 	findingComments         map[int64]int64
 	findingIssues           map[int64]int
+	issueFindings           map[int][]domain.FindingRecord
+	fixPRs                  map[int]int
 	learning                map[learningKey]int
 	learningKeysForComments map[int64]string
 }
@@ -205,7 +284,7 @@ func (s *fakeStore) UpsertInstallation(context.Context, domain.Installation) err
 
 func (s *fakeStore) UpsertRepo(context.Context, domain.Repo) error { return nil }
 
-func (s *fakeStore) GetRepo(context.Context, int64) (*domain.Repo, error) { return nil, nil }
+func (s *fakeStore) GetRepo(context.Context, int64) (*domain.Repo, error) { return s.repo, nil }
 
 func (s *fakeStore) GetRepoByName(context.Context, string, string) (*domain.Repo, error) {
 	return nil, nil
@@ -306,6 +385,31 @@ func (s *fakeStore) IssuesForPR(_ context.Context, repoID int64, prNumber int) (
 	return out, nil
 }
 
+func (s *fakeStore) IssueByNumber(_ context.Context, repoID int64, number int) (*domain.IssueRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, iss := range s.issuesByRepo[repoID] {
+		if iss.Number == number {
+			cp := iss
+			return &cp, nil
+		}
+	}
+	return nil, nil
+}
+
+func (s *fakeStore) SetIssueFixPR(_ context.Context, _ int64, number, prNumber int) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.fixPRs[number] = prNumber
+	return nil
+}
+
+func (s *fakeStore) FindingsForIssue(_ context.Context, _ int64, issueNumber int) ([]domain.FindingRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.issueFindings[issueNumber], nil
+}
+
 func (s *fakeStore) SetFindingComment(_ context.Context, findingID, commentID int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -344,12 +448,15 @@ func (s *fakeStore) LearningKeysForComments(_ context.Context, _ int64, _ int) (
 func (s *fakeStore) Audit(context.Context, domain.AuditEntry) error { return nil }
 
 func newTestPoster() (*Poster, *fakeGitHub, *fakeStore) {
-	gh := &fakeGitHub{reactions: map[int64][]domain.Reaction{}}
+	gh := &fakeGitHub{reactions: map[int64][]domain.Reaction{}, fileContents: map[string]string{}}
 	st := &fakeStore{
+		repo:                    &domain.Repo{ID: 7, Owner: "acme", Name: "core", DefaultBranch: "main", Enabled: true},
 		prStates:                map[prStateKey]domain.PRState{},
 		issuesByRepo:            map[int64][]domain.IssueRecord{},
 		findingComments:         map[int64]int64{},
 		findingIssues:           map[int64]int{},
+		issueFindings:           map[int][]domain.FindingRecord{},
+		fixPRs:                  map[int]int{},
 		learning:                map[learningKey]int{},
 		learningKeysForComments: map[int64]string{},
 	}
@@ -635,5 +742,142 @@ func TestBuildCommentBodyFence(t *testing.T) {
 	}
 	if !strings.Contains(body, "````") {
 		t.Fatalf("body missing four-backtick fence: %q", body)
+	}
+}
+
+func TestHandleIssueCommandDeny(t *testing.T) {
+	p, gh, st := newTestPoster()
+	st.mu.Lock()
+	st.issuesByRepo[7] = []domain.IssueRecord{{ID: 1, RepoID: 7, Number: 12, Title: "x", Kind: "finding", Status: "open"}}
+	st.mu.Unlock()
+
+	err := p.HandleIssueCommand(context.Background(), domain.IssueCommandPayload{
+		RepoID: 7, RepoOwner: "acme", RepoName: "core", IssueNumber: 12, Command: "deny", SenderLogin: "dev",
+	})
+	if err != nil {
+		t.Fatalf("HandleIssueCommand deny: %v", err)
+	}
+	gh.mu.Lock()
+	defer gh.mu.Unlock()
+	if len(gh.editIssues) != 1 || gh.editIssues[0].state != "closed" || gh.editIssues[0].number != 12 {
+		t.Errorf("editIssues = %+v, want one close of issue 12", gh.editIssues)
+	}
+	if len(gh.issueComments) != 1 || !strings.Contains(gh.issueComments[0].body, "deny") {
+		t.Errorf("issueComments = %+v", gh.issueComments)
+	}
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.issuesByRepo[7][0].Status != "closed" {
+		t.Errorf("issue should be closed in store, status = %s", st.issuesByRepo[7][0].Status)
+	}
+}
+
+func TestHandleIssueCommandApprove(t *testing.T) {
+	p, gh, st := newTestPoster()
+	gh.fileContents["a.go"] = `package main
+
+func main() {
+	fmt.Println("debug")
+}
+`
+	st.mu.Lock()
+	st.issuesByRepo[7] = []domain.IssueRecord{{ID: 1, RepoID: 7, Number: 12, Title: "x", Kind: "finding", Status: "open"}}
+	st.issueFindings[12] = []domain.FindingRecord{{
+		ID: 1, File: "a.go", Line: 4, Severity: "high", Title: "Remove debug print",
+		Suggestion: &domain.Suggestion{Old: `fmt.Println("debug")`, New: ""},
+	}}
+	st.mu.Unlock()
+
+	err := p.HandleIssueCommand(context.Background(), domain.IssueCommandPayload{
+		RepoID: 7, RepoOwner: "acme", RepoName: "core", IssueNumber: 12, Command: "approve", SenderLogin: "dev",
+	})
+	if err != nil {
+		t.Fatalf("HandleIssueCommand approve: %v", err)
+	}
+	gh.mu.Lock()
+	defer gh.mu.Unlock()
+	if len(gh.blobs) != 1 || strings.Contains(gh.blobs[0].content, `fmt.Println("debug")`) {
+		t.Errorf("blobs = %+v, want one blob with snippet removed", gh.blobs)
+	}
+	if len(gh.trees) != 1 || len(gh.trees[0].entries) != 1 || gh.trees[0].entries[0].Path != "a.go" {
+		t.Errorf("trees = %+v", gh.trees)
+	}
+	if len(gh.commits) != 1 || len(gh.commits[0].parents) != 1 || gh.commits[0].parents[0] != "basesha" {
+		t.Errorf("commits = %+v", gh.commits)
+	}
+	if len(gh.branches) != 1 || gh.branches[0].name != "codepeer/fix-issue-12" {
+		t.Errorf("branches = %+v", gh.branches)
+	}
+	if len(gh.prs) != 1 {
+		t.Fatalf("prs = %+v, want one fix PR", gh.prs)
+	}
+	if !strings.Contains(gh.prs[0].body, "Fixes #12") {
+		t.Errorf("pr body missing closing keyword: %q", gh.prs[0].body)
+	}
+	if gh.prs[0].base != "main" || gh.prs[0].head != "codepeer/fix-issue-12" {
+		t.Errorf("pr = %+v", gh.prs[0])
+	}
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.fixPRs[12] != 77 {
+		t.Errorf("fixPRs[12] = %d, want 77", st.fixPRs[12])
+	}
+}
+
+func TestHandleIssueCommandApproveNoSuggestions(t *testing.T) {
+	p, gh, st := newTestPoster()
+	st.mu.Lock()
+	st.issuesByRepo[7] = []domain.IssueRecord{{ID: 1, RepoID: 7, Number: 12, Title: "x", Kind: "finding", Status: "open"}}
+	st.issueFindings[12] = []domain.FindingRecord{{ID: 1, File: "a.go", Line: 4, Severity: "high", Title: "No fix"}}
+	st.mu.Unlock()
+
+	err := p.HandleIssueCommand(context.Background(), domain.IssueCommandPayload{
+		RepoID: 7, RepoOwner: "acme", RepoName: "core", IssueNumber: 12, Command: "approve", SenderLogin: "dev",
+	})
+	if err != nil {
+		t.Fatalf("approve without suggestions: %v", err)
+	}
+	gh.mu.Lock()
+	defer gh.mu.Unlock()
+	if len(gh.prs) != 0 || len(gh.blobs) != 0 {
+		t.Errorf("no fix PR should be created without suggestions: prs=%d blobs=%d", len(gh.prs), len(gh.blobs))
+	}
+	if len(gh.issueComments) != 1 || !strings.Contains(gh.issueComments[0].body, "no automated fix") {
+		t.Errorf("issueComments = %+v", gh.issueComments)
+	}
+}
+
+func TestHandleIssueCommandApproveIdempotent(t *testing.T) {
+	p, gh, st := newTestPoster()
+	st.mu.Lock()
+	st.issuesByRepo[7] = []domain.IssueRecord{{ID: 1, RepoID: 7, Number: 12, Title: "x", Kind: "finding", Status: "open", FixPRNumber: 77}}
+	st.issueFindings[12] = []domain.FindingRecord{{ID: 1, File: "a.go", Suggestion: &domain.Suggestion{Old: "a", New: "b"}}}
+	st.mu.Unlock()
+
+	err := p.HandleIssueCommand(context.Background(), domain.IssueCommandPayload{
+		RepoID: 7, RepoOwner: "acme", RepoName: "core", IssueNumber: 12, Command: "approve", SenderLogin: "dev",
+	})
+	if err != nil {
+		t.Fatalf("idempotent approve: %v", err)
+	}
+	gh.mu.Lock()
+	defer gh.mu.Unlock()
+	if len(gh.prs) != 0 || len(gh.blobs) != 0 || len(gh.issueComments) != 0 {
+		t.Errorf("idempotent approve must not post: prs=%d blobs=%d comments=%d", len(gh.prs), len(gh.blobs), len(gh.issueComments))
+	}
+}
+
+func TestHandleIssueCommandUntrackedIssue(t *testing.T) {
+	p, gh, _ := newTestPoster()
+	err := p.HandleIssueCommand(context.Background(), domain.IssueCommandPayload{
+		RepoID: 7, RepoOwner: "acme", RepoName: "core", IssueNumber: 999, Command: "approve", SenderLogin: "dev",
+	})
+	if err != nil {
+		t.Fatalf("untracked issue: %v", err)
+	}
+	gh.mu.Lock()
+	defer gh.mu.Unlock()
+	if len(gh.prs) != 0 || len(gh.editIssues) != 0 {
+		t.Errorf("untracked issue must be a no-op")
 	}
 }

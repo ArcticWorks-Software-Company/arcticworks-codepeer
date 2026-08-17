@@ -212,14 +212,15 @@ type FindingRecord struct {
 
 // IssueRecord is a tracked GitHub issue created by the bot.
 type IssueRecord struct {
-	ID         int64
-	RepoID     int64
-	Number     int
-	Title      string
-	Kind       string // finding | rolling
-	PRNumber   int
-	FindingIDs []string
-	Status     string // open | closed
+	ID          int64
+	RepoID      int64
+	Number      int
+	Title       string
+	Kind        string // finding | rolling
+	PRNumber    int
+	FindingIDs  []string
+	Status      string // open | closed
+	FixPRNumber int
 }
 
 // JobKind enumerates queue job kinds.
@@ -230,6 +231,7 @@ const (
 	JobAnalyzePush JobKind = "analyze_push"
 	JobFeedback    JobKind = "feedback_sweep"
 	JobIssueClose  JobKind = "close_pr_issues"
+	JobIssueCmd    JobKind = "issue_command"
 )
 
 // JobStatus enumerates job lifecycle states.
@@ -295,6 +297,18 @@ type ClosePRIssuesPayload struct {
 	RepoOwner string `json:"repo_owner"`
 	RepoName  string `json:"repo_name"`
 	PRNumber  int    `json:"pr_number"`
+}
+
+// IssueCommandPayload is the payload for JobIssueCmd (approve/deny on an
+// analysis issue).
+type IssueCommandPayload struct {
+	InstallationID int64  `json:"installation_id"`
+	RepoID         int64  `json:"repo_id"`
+	RepoOwner      string `json:"repo_owner"`
+	RepoName       string `json:"repo_name"`
+	IssueNumber    int    `json:"issue_number"`
+	Command        string `json:"command"` // approve | deny
+	SenderLogin    string `json:"sender_login"`
 }
 
 // InlineComment is one inline review comment to post.
@@ -372,6 +386,31 @@ type GitHubAPI interface {
 	GetPushDiff(ctx context.Context, owner, repo, before, after string) ([]ChangedFile, error)
 	// ListInstallationRepos lists repos accessible to an installation.
 	ListInstallationRepos(ctx context.Context, installationID int64) ([]Repo, error)
+	// GetBranchSHA returns the tip SHA of a branch.
+	GetBranchSHA(ctx context.Context, owner, repo, branch string) (string, error)
+	// GetCommitTreeSHA returns the tree SHA of a commit.
+	GetCommitTreeSHA(ctx context.Context, owner, repo, commitSHA string) (string, error)
+	// GetFileWithSHA returns file content and its blob SHA at a ref.
+	GetFileWithSHA(ctx context.Context, owner, repo, path, ref string) (content, sha string, err error)
+	// CreateBlob creates a git blob and returns its SHA.
+	CreateBlob(ctx context.Context, owner, repo, content string) (string, error)
+	// CreateTree creates a git tree based on baseTreeSHA with the given
+	// entries and returns the new tree SHA.
+	CreateTree(ctx context.Context, owner, repo, baseTreeSHA string, entries []TreeEntry) (string, error)
+	// CreateCommit creates a commit on top of parents and returns its SHA.
+	CreateCommit(ctx context.Context, owner, repo, message, treeSHA string, parents []string) (string, error)
+	// CreateBranch creates a branch ref pointing at sha.
+	CreateBranch(ctx context.Context, owner, repo, name, sha string) error
+	// CreatePR opens a pull request and returns its number.
+	CreatePR(ctx context.Context, owner, repo, title, body, head, base string) (int, error)
+}
+
+// TreeEntry is one entry in a git tree mutation.
+type TreeEntry struct {
+	Path string
+	Mode string
+	Type string
+	SHA  string
 }
 
 // Store is the persistence layer. Implemented by internal/store.
@@ -396,8 +435,11 @@ type Store interface {
 	FindingsForRun(ctx context.Context, runID int64) ([]FindingRecord, error)
 	CreateIssue(ctx context.Context, repoID int64, number int, title, kind string, prNumber *int, findingIDs []string) error
 	CloseIssue(ctx context.Context, repoID int64, number int) error
+	IssueByNumber(ctx context.Context, repoID int64, number int) (*IssueRecord, error)
+	SetIssueFixPR(ctx context.Context, repoID int64, number, prNumber int) error
 	OpenIssueForRepo(ctx context.Context, repoID int64, kind string) (*IssueRecord, error)
 	IssuesForPR(ctx context.Context, repoID int64, prNumber int) ([]IssueRecord, error)
+	FindingsForIssue(ctx context.Context, repoID int64, issueNumber int) ([]FindingRecord, error)
 	SetFindingComment(ctx context.Context, findingID int64, commentID int64) error
 	SetFindingIssue(ctx context.Context, findingID int64, issueNumber int) error
 	// UpsertLearning adjusts the weight of a learning key by delta.

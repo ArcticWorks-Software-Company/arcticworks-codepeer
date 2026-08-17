@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/ArcticWorks-Software-Company/arcticworks-codepeer/internal/domain"
@@ -102,8 +103,7 @@ func (h *Handler) dispatch(r *http.Request, event string, body []byte) error {
 	case "installation_repositories":
 		return h.handleInstallationRepos(ctx, body)
 	case "issue_comment":
-		h.logger.Debug("issue_comment ignored (approve/deny workflow deferred)")
-		return nil
+		return h.handleIssueComment(ctx, body)
 	default:
 		h.logger.Debug("unhandled webhook event", "event", event)
 		return nil
@@ -269,6 +269,52 @@ func (h *Handler) handleInstallation(ctx context.Context, body []byte) error {
 	}
 	go h.syncRepos(ev.Installation.ID)
 	return nil
+}
+
+type issueCommentEvent struct {
+	eventEnvelope
+	Comment struct {
+		ID   int64  `json:"id"`
+		Body string `json:"body"`
+		User struct {
+			Login string `json:"login"`
+		} `json:"user"`
+	} `json:"comment"`
+	Issue struct {
+		Number      int    `json:"number"`
+		PullRequest any    `json:"pull_request"`
+		State       string `json:"state"`
+	} `json:"issue"`
+}
+
+func (h *Handler) handleIssueComment(ctx context.Context, body []byte) error {
+	var ev issueCommentEvent
+	if err := json.Unmarshal(body, &ev); err != nil {
+		return err
+	}
+	if ev.Action != "created" {
+		return nil
+	}
+	if ev.Sender.Login != "" && h.gh.SelfLogin() != "" && ev.Sender.Login == h.gh.SelfLogin() {
+		return nil
+	}
+	if ev.Issue.PullRequest != nil {
+		return nil
+	}
+	command := strings.ToLower(strings.TrimSpace(ev.Comment.Body))
+	if command != "approve" && command != "deny" {
+		return nil
+	}
+	h.audit(ctx, ev.eventEnvelope, "issue_comment", map[string]any{"issue": ev.Issue.Number, "command": command})
+	return h.queue.Enqueue(ctx, domain.JobIssueCmd, domain.IssueCommandPayload{
+		InstallationID: ev.Installation.ID,
+		RepoID:         ev.Repository.ID,
+		RepoOwner:      ev.Repository.Owner.Login,
+		RepoName:       ev.Repository.Name,
+		IssueNumber:    ev.Issue.Number,
+		Command:        command,
+		SenderLogin:    ev.Sender.Login,
+	})
 }
 
 type repoRef struct {

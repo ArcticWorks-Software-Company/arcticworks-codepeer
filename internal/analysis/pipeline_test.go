@@ -147,6 +147,28 @@ func (f *fakeGitHub) GetPushDiff(_ context.Context, _, _, _, _ string) ([]domain
 func (f *fakeGitHub) ListInstallationRepos(context.Context, int64) ([]domain.Repo, error) {
 	return nil, nil
 }
+func (f *fakeGitHub) GetBranchSHA(context.Context, string, string, string) (string, error) {
+	return "", nil
+}
+func (f *fakeGitHub) GetCommitTreeSHA(context.Context, string, string, string) (string, error) {
+	return "", nil
+}
+func (f *fakeGitHub) GetFileWithSHA(context.Context, string, string, string, string) (string, string, error) {
+	return "", "", nil
+}
+func (f *fakeGitHub) CreateBlob(context.Context, string, string, string) (string, error) {
+	return "", nil
+}
+func (f *fakeGitHub) CreateTree(context.Context, string, string, string, []domain.TreeEntry) (string, error) {
+	return "", nil
+}
+func (f *fakeGitHub) CreateCommit(context.Context, string, string, string, string, []string) (string, error) {
+	return "", nil
+}
+func (f *fakeGitHub) CreateBranch(context.Context, string, string, string, string) error { return nil }
+func (f *fakeGitHub) CreatePR(context.Context, string, string, string, string, string, string) (int, error) {
+	return 0, nil
+}
 
 type fakeStore struct {
 	mu         sync.Mutex
@@ -228,6 +250,13 @@ func (s *fakeStore) CreateIssue(context.Context, int64, int, string, string, *in
 	return nil
 }
 func (s *fakeStore) CloseIssue(context.Context, int64, int) error { return nil }
+func (s *fakeStore) IssueByNumber(context.Context, int64, int) (*domain.IssueRecord, error) {
+	return nil, nil
+}
+func (s *fakeStore) SetIssueFixPR(context.Context, int64, int, int) error { return nil }
+func (s *fakeStore) FindingsForIssue(context.Context, int64, int) ([]domain.FindingRecord, error) {
+	return nil, nil
+}
 func (s *fakeStore) OpenIssueForRepo(context.Context, int64, string) (*domain.IssueRecord, error) {
 	return nil, nil
 }

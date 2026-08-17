@@ -101,6 +101,13 @@ func (s *fakeStore) CreateIssue(context.Context, int64, int, string, string, *in
 	return nil
 }
 func (s *fakeStore) CloseIssue(context.Context, int64, int) error { return nil }
+func (s *fakeStore) IssueByNumber(context.Context, int64, int) (*domain.IssueRecord, error) {
+	return nil, nil
+}
+func (s *fakeStore) SetIssueFixPR(context.Context, int64, int, int) error { return nil }
+func (s *fakeStore) FindingsForIssue(context.Context, int64, int) ([]domain.FindingRecord, error) {
+	return nil, nil
+}
 func (s *fakeStore) OpenIssueForRepo(context.Context, int64, string) (*domain.IssueRecord, error) {
 	return nil, nil
 }
@@ -171,6 +178,28 @@ func (f *fakeGitHub) GetPushDiff(context.Context, string, string, string, string
 }
 func (f *fakeGitHub) ListInstallationRepos(context.Context, int64) ([]domain.Repo, error) {
 	return nil, nil
+}
+func (f *fakeGitHub) GetBranchSHA(context.Context, string, string, string) (string, error) {
+	return "", nil
+}
+func (f *fakeGitHub) GetCommitTreeSHA(context.Context, string, string, string) (string, error) {
+	return "", nil
+}
+func (f *fakeGitHub) GetFileWithSHA(context.Context, string, string, string, string) (string, string, error) {
+	return "", "", nil
+}
+func (f *fakeGitHub) CreateBlob(context.Context, string, string, string) (string, error) {
+	return "", nil
+}
+func (f *fakeGitHub) CreateTree(context.Context, string, string, string, []domain.TreeEntry) (string, error) {
+	return "", nil
+}
+func (f *fakeGitHub) CreateCommit(context.Context, string, string, string, string, []string) (string, error) {
+	return "", nil
+}
+func (f *fakeGitHub) CreateBranch(context.Context, string, string, string, string) error { return nil }
+func (f *fakeGitHub) CreatePR(context.Context, string, string, string, string, string, string) (int, error) {
+	return 0, nil
 }
 
 func sign(t *testing.T, secret, body string) string {
@@ -373,3 +402,91 @@ func TestAuditRecorded(t *testing.T) {
 }
 
 var _ = json.Marshal
+
+func TestWebhookIssueCommentApprove(t *testing.T) {
+	gh := &fakeGitHub{login: "codepeer[bot]"}
+	st := newFakeStore()
+	q := &fakeQueue{}
+	body := `{
+	  "action": "created",
+	  "comment": {"id": 5, "body": "approve", "user": {"login": "dev"}},
+	  "issue": {"number": 12},
+	  "repository": {"id": 7, "owner": {"login": "acme"}, "name": "core"},
+	  "sender": {"login": "dev"},
+	  "installation": {"id": 1}
+	}`
+	rec := doWebhook(t, "secret", "secret", "issue_comment", "d1", body, gh, st, q)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if len(q.jobs) != 1 || q.jobs[0] != domain.JobIssueCmd {
+		t.Fatalf("jobs = %v, want [issue_command]", q.jobs)
+	}
+	payload, ok := q.items[0].(domain.IssueCommandPayload)
+	if !ok || payload.Command != "approve" || payload.IssueNumber != 12 {
+		t.Errorf("payload = %+v", q.items[0])
+	}
+}
+
+func TestWebhookIssueCommentDeny(t *testing.T) {
+	gh := &fakeGitHub{login: "codepeer[bot]"}
+	st := newFakeStore()
+	q := &fakeQueue{}
+	body := `{
+	  "action": "created",
+	  "comment": {"id": 5, "body": " DENY ", "user": {"login": "dev"}},
+	  "issue": {"number": 12},
+	  "repository": {"id": 7, "owner": {"login": "acme"}, "name": "core"},
+	  "sender": {"login": "dev"},
+	  "installation": {"id": 1}
+	}`
+	rec := doWebhook(t, "secret", "secret", "issue_comment", "d1", body, gh, st, q)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if len(q.jobs) != 1 || q.jobs[0] != domain.JobIssueCmd {
+		t.Fatalf("jobs = %v", q.jobs)
+	}
+}
+
+func TestWebhookIssueCommentOnPRConversationIgnored(t *testing.T) {
+	gh := &fakeGitHub{login: "codepeer[bot]"}
+	st := newFakeStore()
+	q := &fakeQueue{}
+	body := `{
+	  "action": "created",
+	  "comment": {"id": 5, "body": "approve", "user": {"login": "dev"}},
+	  "issue": {"number": 12, "pull_request": {"url": "https://api.github.com/repos/acme/core/pulls/12"}},
+	  "repository": {"id": 7, "owner": {"login": "acme"}, "name": "core"},
+	  "sender": {"login": "dev"},
+	  "installation": {"id": 1}
+	}`
+	rec := doWebhook(t, "secret", "secret", "issue_comment", "d1", body, gh, st, q)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if len(q.jobs) != 0 {
+		t.Fatalf("PR-conversation comments must not enqueue: %v", q.jobs)
+	}
+}
+
+func TestWebhookIssueCommentNoiseIgnored(t *testing.T) {
+	gh := &fakeGitHub{login: "codepeer[bot]"}
+	st := newFakeStore()
+	q := &fakeQueue{}
+	body := `{
+	  "action": "created",
+	  "comment": {"id": 5, "body": "looks good to me", "user": {"login": "dev"}},
+	  "issue": {"number": 12},
+	  "repository": {"id": 7, "owner": {"login": "acme"}, "name": "core"},
+	  "sender": {"login": "dev"},
+	  "installation": {"id": 1}
+	}`
+	rec := doWebhook(t, "secret", "secret", "issue_comment", "d1", body, gh, st, q)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if len(q.jobs) != 0 {
+		t.Fatalf("non-command comments must not enqueue: %v", q.jobs)
+	}
+}
