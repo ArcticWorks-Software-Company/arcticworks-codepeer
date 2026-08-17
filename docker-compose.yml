@@ -5,6 +5,8 @@ services:
       POSTGRES_USER: codepeer
       POSTGRES_PASSWORD: codepeer
       POSTGRES_DB: codepeer
+    ports:
+      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

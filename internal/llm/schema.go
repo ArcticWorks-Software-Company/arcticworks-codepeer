@@ -42,13 +42,18 @@ const reviewSchema = `{
           "title": {"type": "string", "description": "One-line imperative summary."},
           "body": {"type": "string", "description": "Why this is a problem, quoting exact lines from the diff as evidence."},
           "suggestion": {
-            "type": ["object", "null"],
-            "additionalProperties": false,
-            "required": ["old", "new"],
-            "properties": {
-              "old": {"type": "string", "description": "Exact existing snippet copied verbatim from the diff"},
-              "new": {"type": "string", "description": "Exact replacement snippet"}
-            }
+            "anyOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["old", "new"],
+                "properties": {
+                  "old": {"type": "string", "description": "Exact existing snippet copied verbatim from the diff"},
+                  "new": {"type": "string", "description": "Exact replacement snippet"}
+                }
+              },
+              {"type": "null"}
+            ]
           },
           "confidence": {"type": "number", "description": "0.0-1.0"},
           "actionable": {"type": "boolean", "description": "true only if the author can act on it in this PR"}

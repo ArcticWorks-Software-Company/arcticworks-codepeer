@@ -88,18 +88,18 @@ func (c *Client) Review(ctx context.Context, req domain.ReviewRequest) (domain.R
 	if err != nil {
 		return domain.ReviewResult{}, err
 	}
-	if resp.OutputText == "" {
+	if resp.text() == "" {
 		slog.Warn("llm: empty output_text, retrying once", "model", c.cfg.Model)
 		resp, err = c.chat(ctx, instructions+emptyRetrySuffix, input)
 		if err != nil {
 			return domain.ReviewResult{}, err
 		}
-		if resp.OutputText == "" {
+		if resp.text() == "" {
 			return domain.ReviewResult{}, errors.New("llm: model returned empty output_text twice")
 		}
 	}
 
-	result, err := decodeResult(resp.OutputText)
+	result, err := decodeResult(resp.text())
 	if err != nil {
 		return domain.ReviewResult{}, err
 	}
@@ -119,11 +119,11 @@ func (c *Client) Review(ctx context.Context, req domain.ReviewRequest) (domain.R
 
 // Ping validates API key, base URL, and model with a minimal request.
 func (c *Client) Ping(ctx context.Context) error {
-	resp, err := c.chat(ctx, "Reply with the word OK.", "ping")
+	resp, err := c.doPlain(ctx, "Reply with the word OK.", "ping")
 	if err != nil {
 		return err
 	}
-	if resp.OutputText == "" {
+	if resp.text() == "" {
 		return errors.New("llm: empty response to ping")
 	}
 	return nil
@@ -170,18 +170,28 @@ func (c *Client) chat(ctx context.Context, instructions, input string) (*apiResp
 }
 
 func (c *Client) do(ctx context.Context, instructions, input string) (*apiResponse, error) {
+	return c.doWith(ctx, instructions, input, true)
+}
+
+func (c *Client) doPlain(ctx context.Context, instructions, input string) (*apiResponse, error) {
+	return c.doWith(ctx, instructions, input, false)
+}
+
+func (c *Client) doWith(ctx context.Context, instructions, input string, withSchema bool) (*apiResponse, error) {
 	payload := apiRequest{
 		Model:           c.cfg.Model,
 		Instructions:    instructions,
 		Input:           input,
 		MaxOutputTokens: maxOutputTokens,
 		Reasoning:       &reasoningSpec{Effort: c.cfg.ReasoningEffort},
-		Text: &textSpec{Format: formatSpec{
+	}
+	if withSchema {
+		payload.Text = &textSpec{Format: formatSpec{
 			Type:   "json_schema",
 			Name:   "review_result",
 			Schema: json.RawMessage(reviewSchema),
 			Strict: true,
-		}},
+		}}
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -388,12 +398,39 @@ type apiResponse struct {
 	StatusCode int    `json:"-"`
 	Status     string `json:"status"`
 	OutputText string `json:"output_text"`
+	Output     []struct {
+		Type    string `json:"type"`
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	} `json:"output"`
 	Error      any    `json:"error"`
 	Incomplete any    `json:"incomplete_details"`
 	Usage      *usage `json:"usage"`
 
 	retryAfter string
 	rawBody    string
+}
+
+// text extracts the assistant's text, falling back to the output items
+// because DeepSeek does not populate the top-level output_text field.
+func (r *apiResponse) text() string {
+	if r.OutputText != "" {
+		return r.OutputText
+	}
+	var b strings.Builder
+	for _, item := range r.Output {
+		if item.Type != "message" {
+			continue
+		}
+		for _, part := range item.Content {
+			if part.Type == "output_text" {
+				b.WriteString(part.Text)
+			}
+		}
+	}
+	return b.String()
 }
 
 type usage struct {

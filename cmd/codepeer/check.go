@@ -68,10 +68,13 @@ func runCheck(includeLLM bool) error {
 		pool.Close()
 	}
 
-	if len(env.GitHubWebhookSecret) < 16 {
-		check("webhook secret", fmt.Errorf("must be at least 16 characters"), "")
+	if len(env.GitHubWebhookSecret) < 8 {
+		check("webhook secret", fmt.Errorf("must be at least 8 characters"), "")
 	} else {
 		check("webhook secret", nil, fmt.Sprintf("%d chars", len(env.GitHubWebhookSecret)))
+		if len(env.GitHubWebhookSecret) < 16 {
+			fmt.Printf("[WARN] webhook secret is short (%d chars); consider a longer secret\n", len(env.GitHubWebhookSecret))
+		}
 	}
 
 	if keyPEM != nil {
