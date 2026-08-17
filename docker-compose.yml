@@ -39,13 +39,9 @@ services:
       QUEUE_POLL_INTERVAL: ${QUEUE_POLL_INTERVAL:-2s}
       QUEUE_MAX_ATTEMPTS: ${QUEUE_MAX_ATTEMPTS:-5}
       QUEUE_LEASE_TTL: ${QUEUE_LEASE_TTL:-15m}
-    secrets:
-      - github_private_key
+    volumes:
+      - ${GITHUB_APP_PRIVATE_KEY_FILE:-./private-key.pem}:/run/secrets/github_private_key:ro
     restart: unless-stopped
-
-secrets:
-  github_private_key:
-    file: ${GITHUB_APP_PRIVATE_KEY_FILE:-./private-key.pem}
 
 volumes:
   pgdata:
