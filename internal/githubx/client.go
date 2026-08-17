@@ -262,7 +262,6 @@ func (c *Client) CreateComment(ctx context.Context, owner, repo string, prNumber
 	}
 	if cm.Line > 0 {
 		comment.Line = github.Ptr(cm.Line)
-		comment.SubjectType = github.Ptr("line")
 		if cm.StartLine > 0 {
 			comment.StartLine = github.Ptr(cm.StartLine)
 			comment.StartSide = github.Ptr(cm.StartSide)

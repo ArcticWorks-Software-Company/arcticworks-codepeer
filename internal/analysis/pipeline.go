@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ArcticWorks-Software-Company/arcticworks-codepeer/internal/domain"
 	"github.com/ArcticWorks-Software-Company/arcticworks-codepeer/internal/store"
@@ -28,6 +29,8 @@ type ReviewOutput struct {
 	RunID        int64
 	Skipped      string
 	SkippedFiles []string
+	// PartialFiles lists changed files that could not be analyzed.
+	PartialFiles []string
 }
 
 // Pipeline orchestrates one analysis pass: context, chunking, LLM review,
@@ -153,20 +156,21 @@ func (p *Pipeline) AnalyzePR(ctx context.Context, payload domain.AnalyzePRPayloa
 		return nil, err
 	}
 
-	result, err := p.finish(ctx, repo, runID, out, diffByFile, ctxFiles)
+	result, partialFiles, err := p.finish(ctx, repo, runID, out, diffByFile, ctxFiles)
 	if err != nil {
 		return nil, err
 	}
 	return &ReviewOutput{
-		Kind:      "pr",
-		RepoOwner: payload.RepoOwner,
-		RepoName:  payload.RepoName,
-		RepoID:    repo.ID,
-		PRNumber:  payload.PRNumber,
-		HeadSHA:   payload.HeadSHA,
-		Result:    result,
-		Findings:  out.findings,
-		RunID:     runID,
+		Kind:         "pr",
+		RepoOwner:    payload.RepoOwner,
+		RepoName:     payload.RepoName,
+		RepoID:       repo.ID,
+		PRNumber:     payload.PRNumber,
+		HeadSHA:      payload.HeadSHA,
+		Result:       result,
+		Findings:     out.findings,
+		RunID:        runID,
+		PartialFiles: partialFiles,
 	}, nil
 }
 
@@ -258,26 +262,35 @@ func (p *Pipeline) AnalyzePush(ctx context.Context, payload domain.AnalyzePushPa
 		return nil, err
 	}
 
-	result, err := p.finish(ctx, repo, runID, out, patchMap, ctxFiles)
+	result, partialFiles, err := p.finish(ctx, repo, runID, out, patchMap, ctxFiles)
 	if err != nil {
 		return nil, err
 	}
 	return &ReviewOutput{
-		Kind:      "push",
-		RepoOwner: payload.RepoOwner,
-		RepoName:  payload.RepoName,
-		RepoID:    repo.ID,
-		HeadSHA:   payload.After,
-		Result:    result,
-		Findings:  out.findings,
-		RunID:     runID,
+		Kind:         "push",
+		RepoOwner:    payload.RepoOwner,
+		RepoName:     payload.RepoName,
+		RepoID:       repo.ID,
+		HeadSHA:      payload.After,
+		Result:       result,
+		Findings:     out.findings,
+		RunID:        runID,
+		PartialFiles: partialFiles,
 	}, nil
 }
 
 type chunkOutcome struct {
-	results  []domain.ReviewResult
-	failed   int
-	findings []domain.FindingRecord
+	results      []domain.ReviewResult
+	failed       int
+	failedFiles  []string
+	findings     []domain.FindingRecord
+}
+
+type chunkReview struct {
+	files   []domain.ChangedFile
+	diff    string
+	err     error
+	result  domain.ReviewResult
 }
 
 func (p *Pipeline) runChunks(ctx context.Context, base domain.ReviewRequest, diffByFile map[string]string) (*chunkOutcome, error) {
@@ -289,9 +302,10 @@ func (p *Pipeline) runChunks(ctx context.Context, base domain.ReviewRequest, dif
 	var firstErr error
 	var errMu sync.Mutex
 
-	for _, ch := range chunks {
+	reviews := make([]chunkReview, len(chunks))
+	for i, ch := range chunks {
 		wg.Add(1)
-		go func(ch Chunk) {
+		go func(idx int, ch Chunk) {
 			defer wg.Done()
 			select {
 			case sem <- struct{}{}:
@@ -305,20 +319,26 @@ func (p *Pipeline) runChunks(ctx context.Context, base domain.ReviewRequest, dif
 			req.Files = ch.Files
 			res, err := p.Reviewer.Review(ctx, req)
 			if err != nil {
+				slog.Warn("review chunk failed, retrying once",
+					"files", filePaths(ch.Files), "err", err)
+				time.Sleep(2 * time.Second)
+				res, err = p.Reviewer.Review(ctx, req)
+			}
+			mu.Lock()
+			reviews[idx] = chunkReview{files: ch.Files, diff: ch.DiffText, err: err, result: res}
+			if err != nil {
 				errMu.Lock()
 				if firstErr == nil {
 					firstErr = err
 				}
 				errMu.Unlock()
-				mu.Lock()
 				out.failed++
-				mu.Unlock()
-				return
+				out.failedFiles = append(out.failedFiles, filePaths(ch.Files)...)
+			} else {
+				out.results = append(out.results, res)
 			}
-			mu.Lock()
-			out.results = append(out.results, res)
 			mu.Unlock()
-		}(ch)
+		}(i, ch)
 	}
 	wg.Wait()
 
@@ -329,9 +349,18 @@ func (p *Pipeline) runChunks(ctx context.Context, base domain.ReviewRequest, dif
 		return out, nil
 	}
 	if firstErr != nil {
-		slog.Warn("some review chunks failed", "failed", out.failed, "succeeded", len(out.results))
+		slog.Warn("some review chunks failed after retry",
+			"failed", out.failed, "succeeded", len(out.results), "failed_files", out.failedFiles)
 	}
 	return out, nil
+}
+
+func filePaths(files []domain.ChangedFile) []string {
+	paths := make([]string, 0, len(files))
+	for _, f := range files {
+		paths = append(paths, f.Path)
+	}
+	return paths
 }
 
 func (p *Pipeline) reviewConfig(cfg *domain.RepoConfig) domain.ReviewConfig {
@@ -350,8 +379,9 @@ func (p *Pipeline) reviewConfig(cfg *domain.RepoConfig) domain.ReviewConfig {
 	}
 }
 
-// finish merges, dedupes, validates, suppresses, caps, persists.
-func (p *Pipeline) finish(ctx context.Context, repo *domain.Repo, runID int64, out *chunkOutcome, diffByFile, ctxFiles map[string]string) (domain.ReviewResult, error) {
+// finish merges, dedupes, validates, suppresses, caps, persists. It returns
+// the merged result and the list of files that failed analysis.
+func (p *Pipeline) finish(ctx context.Context, repo *domain.Repo, runID int64, out *chunkOutcome, diffByFile, ctxFiles map[string]string) (domain.ReviewResult, []string, error) {
 	var result domain.ReviewResult
 	summary := []string{}
 	allNoFindings := true
@@ -368,10 +398,21 @@ func (p *Pipeline) finish(ctx context.Context, repo *domain.Repo, runID int64, o
 	switch {
 	case len(result.Findings) > 0:
 		result.Status = domain.StatusChangesRequested
-	case allNoFindings:
+	case allNoFindings && out.failed == 0:
 		result.Status = domain.StatusNoFindings
 	default:
 		result.Status = domain.StatusApproved
+	}
+
+	partial := dedupeStrings(out.failedFiles)
+	if len(partial) > 0 {
+		warning := fmt.Sprintf("Partial review warning: %d changed file(s) could not be analyzed (analysis errors): %s.",
+			len(partial), strings.Join(partial, ", "))
+		if result.Summary == "" {
+			result.Summary = warning
+		} else {
+			result.Summary += "\n\n" + warning
+		}
 	}
 
 	keptPaths := map[string]bool{}
@@ -428,17 +469,29 @@ func (p *Pipeline) finish(ctx context.Context, repo *domain.Repo, runID int64, o
 	result.Findings = applyCaps(result.Findings, p.PerFileCap, p.MaxFindings, p.IncludeNits)
 
 	if err := p.Store.CompleteRun(ctx, runID, &result); err != nil {
-		return result, err
+		return result, partial, err
 	}
 	if err := p.Store.SaveFindings(ctx, runID, result.Findings, DedupeHash); err != nil {
-		return result, err
+		return result, partial, err
 	}
 	records, err := p.Store.FindingsForRun(ctx, runID)
 	if err != nil {
-		return result, err
+		return result, partial, err
 	}
 	out.findings = records
-	return result, nil
+	return result, partial, nil
+}
+
+func dedupeStrings(in []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if !seen[s] {
+			seen[s] = true
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // SeverityRank orders severities.

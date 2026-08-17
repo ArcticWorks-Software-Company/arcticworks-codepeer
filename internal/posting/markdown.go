@@ -71,7 +71,15 @@ func BuildSummaryBody(out ReviewOutput) string {
 	var sb strings.Builder
 	sb.WriteString("## CodePeer Review\n\n")
 	sb.WriteString(out.Result.Summary)
-	sb.WriteString("\n\n**Verdict:** " + verdictText(out.Result.Status))
+	if len(out.PartialFiles) > 0 {
+		sb.WriteString("\n\n### Partial review\n\nAnalysis failed for these changed files (LLM errors); they were NOT reviewed:\n")
+		for _, f := range out.PartialFiles {
+			sb.WriteString("\n- `" + f + "`")
+		}
+		sb.WriteString("\n\n**Verdict:** Partial review — do not rely on this as a complete review.")
+	} else {
+		sb.WriteString("\n\n**Verdict:** " + verdictText(out.Result.Status))
+	}
 	n := len(out.Findings)
 	sb.WriteString("\n\n### Findings (" + strconv.Itoa(n) + ")")
 	if n == 0 {

@@ -86,11 +86,16 @@ func (p *Poster) PostPRReview(ctx context.Context, out ReviewOutput) error {
 	}
 
 	hasFindings := len(out.Findings) > 0
+	partial := len(out.PartialFiles) > 0
 	conclusion := "success"
 	summary := "no findings"
-	if hasFindings {
+	switch {
+	case hasFindings:
 		conclusion = "neutral"
 		summary = strconv.Itoa(len(out.Findings)) + " findings"
+	case partial:
+		conclusion = "neutral"
+		summary = "partial review: " + strconv.Itoa(len(out.PartialFiles)) + " files not analyzed"
 	}
 
 	var annotations []domain.Annotation
