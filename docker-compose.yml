@@ -1,0 +1,51 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: codepeer
+      POSTGRES_PASSWORD: codepeer
+      POSTGRES_DB: codepeer
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U codepeer -d codepeer"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  codepeer:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: "8080"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: postgres://codepeer:codepeer@db:5432/codepeer?sslmode=disable
+      GITHUB_APP_ID: ${GITHUB_APP_ID}
+      GITHUB_APP_CLIENT_ID: ${GITHUB_APP_CLIENT_ID:-}
+      GITHUB_APP_PRIVATE_KEY: /run/secrets/github_private_key
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET}
+      BOT_LOGIN: ${BOT_LOGIN:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.deepseek.com}
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_MODEL: ${LLM_MODEL:-deepseek-v4-flash}
+      LLM_REASONING_EFFORT: ${LLM_REASONING_EFFORT:-high}
+      LLM_TIMEOUT: ${LLM_TIMEOUT:-300s}
+      QUEUE_WORKERS: ${QUEUE_WORKERS:-2}
+      QUEUE_POLL_INTERVAL: ${QUEUE_POLL_INTERVAL:-2s}
+      QUEUE_MAX_ATTEMPTS: ${QUEUE_MAX_ATTEMPTS:-5}
+      QUEUE_LEASE_TTL: ${QUEUE_LEASE_TTL:-15m}
+    secrets:
+      - github_private_key
+    restart: unless-stopped
+
+secrets:
+  github_private_key:
+    file: ${GITHUB_APP_PRIVATE_KEY_FILE:-./private-key.pem}
+
+volumes:
+  pgdata:

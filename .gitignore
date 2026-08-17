@@ -1,0 +1,29 @@
+# Binaries
+/codepeer
+/bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test artifacts
+*.test
+*.out
+coverage.*
+
+# Env / secrets
+.env
+.env.local
+*.pem
+*.key
+private-key.pem
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local dev
+/.local/
+/smee/

@@ -1,0 +1,14 @@
+.git
+.gitignore
+.github
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.md
+.vscode
+.idea
+bin
+coverage.*
+smee
