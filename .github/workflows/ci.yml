@@ -1,0 +1,43 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: codepeer
+          POSTGRES_PASSWORD: codepeer
+          POSTGRES_DB: codepeer
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U codepeer"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - name: gofmt check
+        run: test -z "$(gofmt -l .)"
+      - name: go vet
+        run: go vet ./...
+      - name: go test (unit + integration)
+        env:
+          DATABASE_URL: postgres://codepeer:codepeer@localhost:5432/codepeer?sslmode=disable
+        run: go test ./...
+
+  build-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: build container image
+        run: docker build -t codepeer .
