@@ -76,30 +76,37 @@ Copy `.env.example` to `.env` and fill in:
 
 ### 3. Run
 
-Docker Compose (Docker Desktop, or Podman via the compatibility pipe):
+Quick start (verified with Docker Desktop and with Podman on Windows):
 
 ```powershell
-docker compose up -d --build          # Docker Desktop
-.\scripts\docker-podman.ps1 compose up -d --build   # Podman on Windows
-```
-
-Or plain Podman:
-
-```powershell
-podman build -t codepeer .
-podman run -d --name codepeer-db -p 5432:5432 -e POSTGRES_USER=codepeer -e POSTGRES_PASSWORD=codepeer -e POSTGRES_DB=codepeer postgres:17-alpine
-podman run -d --name codepeer --network=host --env-file .env codepeer
+Copy-Item .env.example .env        # fill in the values from step 2
+.\scripts\docker-podman.ps1 compose up -d --build   # Podman (Windows)
+docker compose up -d --build       # Docker Desktop
 ```
 
 The service runs migrations automatically on startup. Health endpoints:
 `GET /healthz` (liveness) and `GET /readyz` (database reachable).
 
+Pre-flight validation (recommended before the first run):
+
+```powershell
+go run ./cmd/codepeer check          # config, key, DB, migrations, GitHub auth
+go run ./cmd/codepeer check --llm    # additionally pings the DeepSeek API
+```
+
 ### 4. Webhook
 
 In the App settings, point the webhook at
 `https://<your-host>/webhook` with the webhook secret from `.env`.
-For local development, expose the port with Smee or a tunnel and set the
-webhook URL to the tunnel.
+
+For local development, GitHub cannot reach `localhost` — use a Smee
+tunnel:
+
+```powershell
+# 1. Create a channel at https://smee.io/new
+# 2. Set the App webhook URL to https://smee.io/<channel> (same secret)
+.\scripts\smee.ps1 -Channel https://smee.io/<your-channel>
+```
 
 ### 5. Local smoke test
 
