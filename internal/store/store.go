@@ -344,7 +344,7 @@ func (s *Store) FindingsForRun(ctx context.Context, runID int64) ([]domain.Findi
 // CreateIssue inserts a tracked issue, reopening it if it already exists.
 func (s *Store) CreateIssue(ctx context.Context, repoID int64, number int, title, kind string, prNumber *int, findingIDs []string) error {
 	_, err := s.pool.Exec(ctx, `INSERT INTO issues (repo_id, number, title, kind, pr_number, finding_ids)
-		VALUES ($1, $2, $3, $4, COALESCE($5, 0), $6)
+		VALUES ($1, $2, $3, $4, COALESCE($5, 0), COALESCE($6::text[], '{}'))
 		ON CONFLICT (repo_id, number) DO UPDATE SET
 			status = 'open',
 			closed_at = NULL`,

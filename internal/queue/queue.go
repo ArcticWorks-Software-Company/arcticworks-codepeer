@@ -58,7 +58,7 @@ func (q *Queue) Dequeue(ctx context.Context) (*domain.Job, bool, error) {
 			FOR UPDATE SKIP LOCKED
 			LIMIT 1
 		)
-		RETURNING id, kind, payload, attempts, max_attempts, status, run_at, last_error, created_at, updated_at;
+		RETURNING id, kind, payload, attempts, max_attempts, status, run_at, COALESCE(last_error, '') AS last_error, created_at, updated_at;
 	`, q.leaseTTL.String())
 	if err != nil {
 		return nil, false, err
