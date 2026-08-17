@@ -40,6 +40,22 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "sync":
+			if err := runSync(); err != nil {
+				fmt.Fprintln(os.Stderr, "codepeer sync:", err)
+				os.Exit(1)
+			}
+			return
+		case "webhook":
+			url := ""
+			if len(os.Args) > 2 {
+				url = os.Args[2]
+			}
+			if err := runWebhook(url); err != nil {
+				fmt.Fprintln(os.Stderr, "codepeer webhook:", err)
+				os.Exit(1)
+			}
+			return
 		case "version", "--version", "-v":
 			fmt.Println("codepeer dev")
 			return

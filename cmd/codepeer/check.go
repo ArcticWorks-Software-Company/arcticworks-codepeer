@@ -96,6 +96,23 @@ func runCheck(includeLLM bool) error {
 					check("bot self-login", nil, login)
 				}
 			}
+			name, slug, infoErr := gh.AppInfo(ctx)
+			if infoErr != nil {
+				check("github app info", infoErr, "")
+			} else {
+				check("github app info", nil, fmt.Sprintf("%s", name))
+				if n == 0 {
+					fmt.Printf("[WARN] no installations yet — install the app at https://github.com/apps/%s/installations/new\n", slug)
+				}
+			}
+			hookURL, contentType, secretSet, hookErr := gh.AppHookConfig(ctx)
+			if hookErr != nil {
+				check("github app webhook", hookErr, "")
+			} else if hookURL == "" {
+				check("github app webhook", fmt.Errorf("no webhook URL configured — set it in the App settings"), "")
+			} else {
+				check("github app webhook", nil, fmt.Sprintf("%s (%s, secret=%v)", hookURL, contentType, secretSet))
+			}
 		}
 	}
 
