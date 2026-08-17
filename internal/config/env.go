@@ -32,10 +32,14 @@ type Env struct {
 	QueueLeaseTTL       time.Duration
 }
 
-// Load reads the configuration from environment variables, applying defaults
-// for optional values and returning a descriptive error when required values
+// Load reads the configuration from environment variables (including a
+// .env file in the working directory when present), applying defaults for
+// optional values and returning a descriptive error when required values
 // are missing or malformed.
 func Load() (Env, error) {
+	if err := loadDotenv(); err != nil {
+		return Env{}, err
+	}
 	e := Env{
 		Port:                envOr("PORT", "8080"),
 		LogLevel:            envOr("LOG_LEVEL", "info"),

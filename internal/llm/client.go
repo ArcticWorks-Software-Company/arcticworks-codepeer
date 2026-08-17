@@ -117,6 +117,18 @@ func (c *Client) Review(ctx context.Context, req domain.ReviewRequest) (domain.R
 	return result, nil
 }
 
+// Ping validates API key, base URL, and model with a minimal request.
+func (c *Client) Ping(ctx context.Context) error {
+	resp, err := c.chat(ctx, "Reply with the word OK.", "ping")
+	if err != nil {
+		return err
+	}
+	if resp.OutputText == "" {
+		return errors.New("llm: empty response to ping")
+	}
+	return nil
+}
+
 func (c *Client) chat(ctx context.Context, instructions, input string) (*apiResponse, error) {
 	var (
 		retryAfter     time.Duration

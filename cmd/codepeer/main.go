@@ -27,6 +27,24 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "check":
+			includeLLM := false
+			for _, a := range os.Args[2:] {
+				if a == "--llm" || a == "-llm" {
+					includeLLM = true
+				}
+			}
+			if err := runCheck(includeLLM); err != nil {
+				os.Exit(1)
+			}
+			return
+		case "version", "--version", "-v":
+			fmt.Println("codepeer dev")
+			return
+		}
+	}
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "codepeer:", err)
 		os.Exit(1)

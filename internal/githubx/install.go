@@ -14,6 +14,21 @@ func WithInstallation(ctx context.Context, installationID int64) context.Context
 	return context.WithValue(ctx, installCtxKey{}, installationID)
 }
 
+// AuthCheck validates the App credentials by listing installations with a
+// JWT-authenticated client and returns the number of installations.
+func (c *Client) AuthCheck(ctx context.Context) (int, error) {
+	jwt, err := c.appJWT()
+	if err != nil {
+		return 0, err
+	}
+	appClient := c.newClient().WithAuthToken(jwt)
+	installs, _, err := appClient.Apps.ListInstallations(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("githubx: auth check: %w", err)
+	}
+	return len(installs), nil
+}
+
 // ResolveSelfLogin determines the bot's own login by querying /user with the
 // first installation's token, and caches it on the client. Returns the
 // configured login when one is set. Returns ("", nil) when the app has no

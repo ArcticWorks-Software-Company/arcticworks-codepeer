@@ -516,3 +516,38 @@ func TestEnvRedacted(t *testing.T) {
 		t.Error("Redacted mutated the original env")
 	}
 }
+
+func TestLoadDotenv(t *testing.T) {
+	dir := t.TempDir()
+	envFile := filepath.Join(dir, ".env")
+	content := "PORT=9999\n# comment\nQUOTED=\"hello world\"\nEMPTYVAL=\nBADLINE\n"
+	if err := os.WriteFile(envFile, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := os.Getenv("CODE_PEER_ENV_FILE")
+	t.Setenv("CODE_PEER_ENV_FILE", envFile)
+	t.Setenv("EXISTING_KEY", "keep-me")
+	if err := loadDotenv(); err != nil {
+		t.Fatalf("loadDotenv: %v", err)
+	}
+	if got := os.Getenv("PORT"); got != "9999" {
+		t.Errorf("PORT = %q, want 9999", got)
+	}
+	if got := os.Getenv("QUOTED"); got != "hello world" {
+		t.Errorf("QUOTED = %q, want stripped quotes", got)
+	}
+	if _, ok := os.LookupEnv("EMPTYVAL"); !ok {
+		t.Errorf("EMPTYVAL should be set to empty")
+	}
+	if _, ok := os.LookupEnv("BADLINE"); ok {
+		t.Errorf("BADLINE should be ignored")
+	}
+	_ = old
+}
+
+func TestLoadDotenvMissingFile(t *testing.T) {
+	t.Setenv("CODE_PEER_ENV_FILE", filepath.Join(t.TempDir(), "does-not-exist.env"))
+	if err := loadDotenv(); err != nil {
+		t.Fatalf("missing env file must not error: %v", err)
+	}
+}
