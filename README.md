@@ -10,13 +10,15 @@
 
 ### What does this do?
 
-ArcticWorks CodePeer is an org-wide AI code reviewer. Install the GitHub App once on the ArcticWorks-Software-Company org and it watches every repository, reviews new code, and reports what it finds — as pull-request reviews, inline suggestions, and analysis issues. Headless Go server; no desktop or web UI.
+ArcticWorks CodePeer is an AI code reviewer for GitHub. Install it on any organization or personal account — it watches every repo you give it access to, reviews new code, and reports what it finds as pull-request reviews, inline suggestions, and analysis issues. Headless Go server; no desktop or web UI. You host it; your repos keep their secrets.
 
 ### How even?
 
 On every PR (opened, updated, reopened) CodePeer fetches the diff, runs a team of specialist LLM agents over it, and posts a review with a summary and inline comments. Small fixes arrive as native GitHub `suggestion` blocks — one click to apply. Larger findings are opened as linked analysis issues. On every push it can optionally append findings to a single rolling analysis issue per repo instead of flooding the tracker.
 
 Every analysis issue is approve-or-deny: comment `approve` and CodePeer applies the stored fixes and opens a PR that closes the issue; comment `deny` — or fix it yourself — and the issue is closed as resolved. The bot ignores its own events, so its own PRs never retrigger it.
+
+Who it's for: engineering teams, repository maintainers, and anyone who wants review coverage on small or solo projects.
 
 The things you get:
 
@@ -32,9 +34,11 @@ The things you get:
 
 ### How do I use it?
 
+You need a GitHub App (your own credentials), a DeepSeek API key, and somewhere to run the container. Everything else comes with the repo.
+
 #### 1. Create the GitHub App
 
-Org settings -> Developer settings -> GitHub Apps -> New GitHub App.
+On your account or org: Settings -> Developer settings -> GitHub Apps -> New GitHub App.
 
 | Permission | Level | Why |
 |------------|-------|-----|
@@ -45,7 +49,7 @@ Org settings -> Developer settings -> GitHub Apps -> New GitHub App.
 | Metadata | Read | Implicit |
 
 Events: `pull_request`, `push`, `issue_comment`, `installation`, `installation_repositories`.
-Generate a private key (PEM), note the App ID and Client ID, then install the app on the org.
+Generate a private key (PEM), note the App ID and Client ID, then install the app wherever you want coverage — an org, a personal account, or a single repo.
 
 #### 2. Configure
 
@@ -221,7 +225,7 @@ arcticworks-codepeer/
 
 **Deferred:**
 - Reaction-based approve/deny (reactions currently feed learning only)
-- ArcticWorks Identity integration (optional per spec)
+- Optional enterprise identity integrations (runs fully standalone)
 
 ### Credits
 
@@ -239,5 +243,5 @@ Built with help from:
 	<br/><br/>
 	<i>headless by design. reviews responsibly. always verify AI feedback.</i>
 	<br/>
-	<sub>part of the ArcticWorks Software platform.</sub>
+	<sub>self-hostable. bring your own app, key, and repos.</sub>
 </div>
