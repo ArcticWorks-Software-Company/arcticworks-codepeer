@@ -500,6 +500,32 @@ func TestAnalyzePRSkips(t *testing.T) {
 	}
 }
 
+func TestAnalyzePRDependabotIgnoredByDefault(t *testing.T) {
+	for _, sender := range []string{"dependabot[bot]", "renovate[bot]", "dependabot-preview[bot]", "github-actions[bot]", "imgbot[bot]"} {
+		t.Run(sender, func(t *testing.T) {
+			rev := &fakeReviewer{}
+			gh := &fakeGitHub{
+				pr:      domain.PRInfo{Number: 5, Title: "build(deps): bump x", State: "open", HeadSHA: "abc123", BaseRef: "main"},
+				rawDiff: sampleDiff,
+				files:   sampleFiles(),
+			}
+			st := newFakeStore(testRepo())
+			out, err := newTestPipeline(rev, gh, st).AnalyzePR(context.Background(), domain.AnalyzePRPayload{
+				RepoID: 7, RepoOwner: "acme", RepoName: "core", PRNumber: 5, HeadSHA: "abc123", SenderLogin: sender,
+			})
+			if err != nil {
+				t.Fatalf("AnalyzePR: %v", err)
+			}
+			if out.Skipped != "user ignored" {
+				t.Errorf("Skipped = %q, want user ignored (default ignore list)", out.Skipped)
+			}
+			if rev.callCount() != 0 {
+				t.Errorf("reviewer should not be called for %s, calls=%d", sender, rev.callCount())
+			}
+		})
+	}
+}
+
 func TestAnalyzePushNotDefaultBranch(t *testing.T) {
 	rev := &fakeReviewer{}
 	gh := &fakeGitHub{files: sampleFiles()}

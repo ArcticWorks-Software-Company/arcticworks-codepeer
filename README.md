@@ -162,7 +162,7 @@ enabled: true
 mode: pr            # pr | push | both
 strictness: balanced # lenient | balanced | strict
 ignore_paths: ["docs/**"]
-ignore_usernames: ["dependabot[bot]"]
+ignore_usernames: ["some-contractor"]  # dependabot, renovate, and CI bots are ignored by default
 skip_title_keywords: ["WIP"]
 max_findings: 10
 per_file_cap: 3
