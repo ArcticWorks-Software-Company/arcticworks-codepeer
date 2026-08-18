@@ -3,6 +3,8 @@
 	<p>Code review for every pull request, from a bot you host.</p>
 </div>
 
+[English](README.md) · [简体中文](README.zh-CN.md)
+
 [![CI](https://github.com/ArcticWorks-Software-Company/arcticworks-codepeer/actions/workflows/ci.yml/badge.svg)](https://github.com/ArcticWorks-Software-Company/arcticworks-codepeer/actions/workflows/ci.yml)
 [![Language](https://img.shields.io/badge/language-Go-00ADD8.svg?style=flat-square)]()
 [![Model](https://img.shields.io/badge/model-deepseek--v4--flash-4D6BFE.svg?style=flat-square)]()
