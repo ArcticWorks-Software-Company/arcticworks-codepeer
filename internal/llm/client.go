@@ -371,10 +371,57 @@ type nullFinding struct {
 	Findings []*domain.Finding   `json:"findings"`
 }
 
+// escapeRawControlChars escapes control characters that appear unescaped
+// inside a JSON string literal. Models quoting code sometimes emit a literal
+// tab or newline there, which is invalid JSON. Text outside string literals is
+// left alone, so valid payloads round-trip unchanged.
+func escapeRawControlChars(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	inString, escaped := false, false
+	for _, r := range s {
+		switch {
+		case escaped:
+			b.WriteRune(r)
+			escaped = false
+		case inString && r == '\\':
+			b.WriteRune(r)
+			escaped = true
+		case r == '"':
+			inString = !inString
+			b.WriteRune(r)
+		case inString && r < 0x20:
+			switch r {
+			case '\t':
+				b.WriteString(`\t`)
+			case '\n':
+				b.WriteString(`\n`)
+			case '\r':
+				b.WriteString(`\r`)
+			case '\b':
+				b.WriteString(`\b`)
+			case '\f':
+				b.WriteString(`\f`)
+			default:
+				fmt.Fprintf(&b, `\u%04x`, r)
+			}
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 func decodeResult(outputText string) (domain.ReviewResult, error) {
 	var nf nullFinding
 	if err := json.Unmarshal([]byte(outputText), &nf); err != nil {
-		return domain.ReviewResult{}, fmt.Errorf("llm: decode review result: %w", err)
+		repaired := escapeRawControlChars(outputText)
+		if repaired == outputText {
+			return domain.ReviewResult{}, fmt.Errorf("llm: decode review result: %w", err)
+		}
+		if err := json.Unmarshal([]byte(repaired), &nf); err != nil {
+			return domain.ReviewResult{}, fmt.Errorf("llm: decode review result: %w", err)
+		}
 	}
 	result := domain.ReviewResult{Summary: nf.Summary, Status: nf.Status}
 	for _, f := range nf.Findings {

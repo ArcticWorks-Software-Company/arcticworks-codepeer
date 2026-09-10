@@ -197,3 +197,34 @@ func TestReviewRetriesOn429(t *testing.T) {
 		t.Fatalf("calls = %d, want 2", calls)
 	}
 }
+
+func TestDecodeResultRawControlChars(t *testing.T) {
+	// A model quoting code emitted a literal tab inside a JSON string, which
+	// is invalid JSON on its own.
+	out := "{\"summary\":\"needs work\",\"status\":\"findings\",\"findings\":[" +
+		"{\"file\":\"a.cs\",\"line\":3,\"severity\":\"low\",\"title\":\"t\"," +
+		"\"body\":\"use\tthis\ninstead\"}]}"
+	res, err := decodeResult(out)
+	if err != nil {
+		t.Fatalf("decodeResult: %v", err)
+	}
+	if len(res.Findings) != 1 {
+		t.Fatalf("findings = %d, want 1", len(res.Findings))
+	}
+	if got := res.Findings[0].Body; got != "use\tthis\ninstead" {
+		t.Errorf("body = %q", got)
+	}
+}
+
+func TestDecodeResultStillFailsOnGarbage(t *testing.T) {
+	if _, err := decodeResult("not json at all"); err == nil {
+		t.Fatal("expected an error")
+	}
+}
+
+func TestEscapeRawControlCharsLeavesValidJSONAlone(t *testing.T) {
+	in := `{"a":"line\tone","b":"c"}`
+	if got := escapeRawControlChars(in); got != in {
+		t.Errorf("escapeRawControlChars = %q, want unchanged", got)
+	}
+}
