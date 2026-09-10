@@ -34,6 +34,14 @@ CodePeer 是一个面向 GitHub 的 AI 代码审查机器人。安装到任意�
 
 你需要一个 GitHub App（你自己的凭据）、一个 DeepSeek API 密钥，以及运行容器的地方。其余一切都随仓库提供。
 
+### 最快路径：在 Railway 上一键部署
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/-9mHKY?referralCode=YZxhW4&utm_medium=integration&utm_source=button&utm_campaign=codepeer)
+
+一键同时创建 Postgres 和机器人服务，在两者之间接好 `DATABASE_URL`，并分配一个用于 webhook 的公开 HTTPS 域名。GitHub App 仍需你自己创建（见下面第 1 步），并把 App ID 和私钥填入部署表单。完整步骤、模板内容以及 [Infrastructure as Code](.railway/railway.ts) 方案见 [RAILWAY.md](RAILWAY.md)。
+
+若要部署到别处，按下面四步操作。
+
 ### 1. 创建 GitHub App
 
 在你的账户或组织下：Settings、Developer settings、GitHub Apps、New GitHub App。
@@ -59,7 +67,7 @@ CodePeer 是一个面向 GitHub 的 AI 代码审查机器人。安装到任意�
 | `DATABASE_URL` | Postgres DSN |
 | `GITHUB_APP_ID` | App 设置中的 App ID |
 | `GITHUB_APP_CLIENT_ID` | Client ID（JWT 签发者；可选） |
-| `GITHUB_APP_PRIVATE_KEY` | PEM 文件路径，或 PEM 内容 |
+| `GITHUB_APP_PRIVATE_KEY` | PEM 文件路径、PEM 内容，或 base64 编码的 PEM |
 | `GITHUB_WEBHOOK_SECRET` | 高熵密钥；与 App webhook 上保持一致 |
 | `LLM_API_KEY` | DeepSeek API 密钥 |
 | `LLM_BASE_URL` | `https://api.deepseek.com`（默认） |
@@ -155,6 +163,7 @@ instruction_files: ["AGENTS.md"]
 ## 文档
 
 - [架构](ARCHITECTURE.md)
+- [Railway 部署](RAILWAY.md)
 - [智能体指南](AGENTS.md)
 
 ## 致谢

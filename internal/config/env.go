@@ -3,6 +3,8 @@
 package config
 
 import (
+	"bytes"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
@@ -89,13 +91,21 @@ func Load() (Env, error) {
 	return e, nil
 }
 
-// PrivateKeyPEM returns the GitHub App private key as PEM bytes, reading from
-// the filesystem when GITHUB_APP_PRIVATE_KEY is a path.
+// PrivateKeyPEM returns the GitHub App private key as PEM bytes. The value may
+// be the PEM contents, the PEM base64-encoded, the PEM on a single line with
+// escaped newlines, or a path to a PEM file. The single-line forms exist for
+// hosts whose variable inputs cannot carry a multi-line value.
 func (e Env) PrivateKeyPEM() ([]byte, error) {
-	if strings.HasPrefix(e.GitHubAppPrivateKey, "-----BEGIN") {
-		return []byte(e.GitHubAppPrivateKey), nil
+	raw := e.GitHubAppPrivateKey
+	// A real PEM has no literal backslash-n, so unescaping is a no-op for it.
+	if unescaped := strings.ReplaceAll(raw, `\n`, "\n"); strings.HasPrefix(strings.TrimSpace(unescaped), "-----BEGIN") {
+		return []byte(unescaped), nil
 	}
-	return os.ReadFile(e.GitHubAppPrivateKey)
+	if decoded, err := base64.StdEncoding.DecodeString(strings.Join(strings.Fields(raw), "")); err == nil &&
+		bytes.HasPrefix(bytes.TrimSpace(decoded), []byte("-----BEGIN")) {
+		return decoded, nil
+	}
+	return os.ReadFile(raw)
 }
 
 // Redacted returns a copy of the env as a string with secret values replaced,

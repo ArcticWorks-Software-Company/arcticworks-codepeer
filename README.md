@@ -34,6 +34,14 @@ Who it's for: engineering teams, repository maintainers, and anyone who wants re
 
 You need a GitHub App (your own credentials), a DeepSeek API key, and somewhere to run the container. Everything else comes with the repo.
 
+### Fastest path: one click on Railway
+
+[![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/deploy/-9mHKY?referralCode=YZxhW4&utm_medium=integration&utm_source=button&utm_campaign=codepeer)
+
+Provisions Postgres and the bot together, wires `DATABASE_URL` between them, and hands you a public HTTPS domain for the webhook. You still create the GitHub App yourself (step 1 below) and paste its App ID and private key into the deploy form. See [RAILWAY.md](RAILWAY.md) for the full walkthrough, the template contents, and the [Infrastructure as Code](.railway/railway.ts) alternative.
+
+To host it anywhere else, follow the four steps below.
+
 ### 1. Create the GitHub App
 
 On your account or org: Settings, Developer settings, GitHub Apps, New GitHub App.
@@ -59,7 +67,7 @@ Copy `.env.example` to `.env` and fill in:
 | `DATABASE_URL` | Postgres DSN |
 | `GITHUB_APP_ID` | App ID from the App settings |
 | `GITHUB_APP_CLIENT_ID` | Client ID (JWT issuer; optional) |
-| `GITHUB_APP_PRIVATE_KEY` | Path to the PEM file, or the PEM contents |
+| `GITHUB_APP_PRIVATE_KEY` | Path to the PEM file, the PEM contents, or the PEM base64-encoded |
 | `GITHUB_WEBHOOK_SECRET` | High-entropy secret; same value on the App webhook |
 | `LLM_API_KEY` | DeepSeek API key |
 | `LLM_BASE_URL` | `https://api.deepseek.com` (default) |
@@ -155,6 +163,7 @@ instruction_files: ["AGENTS.md"]
 ## Documentation
 
 - [Architecture](ARCHITECTURE.md)
+- [Railway deployment](RAILWAY.md)
 - [Agent guide](AGENTS.md)
 
 ## Credits

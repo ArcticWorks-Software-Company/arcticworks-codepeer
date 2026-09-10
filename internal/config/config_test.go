@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -468,6 +469,30 @@ func TestLoadInvalidInt(t *testing.T) {
 func TestPrivateKeyPEMInline(t *testing.T) {
 	pem := "-----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----\n"
 	e := Env{GitHubAppPrivateKey: pem}
+	got, err := e.PrivateKeyPEM()
+	if err != nil {
+		t.Fatalf("PrivateKeyPEM: %v", err)
+	}
+	if string(got) != pem {
+		t.Errorf("PrivateKeyPEM = %q, want %q", got, pem)
+	}
+}
+
+func TestPrivateKeyPEMBase64(t *testing.T) {
+	pem := "-----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----\n"
+	e := Env{GitHubAppPrivateKey: base64.StdEncoding.EncodeToString([]byte(pem))}
+	got, err := e.PrivateKeyPEM()
+	if err != nil {
+		t.Fatalf("PrivateKeyPEM: %v", err)
+	}
+	if string(got) != pem {
+		t.Errorf("PrivateKeyPEM = %q, want %q", got, pem)
+	}
+}
+
+func TestPrivateKeyPEMEscapedNewlines(t *testing.T) {
+	pem := "-----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----\n"
+	e := Env{GitHubAppPrivateKey: strings.ReplaceAll(pem, "\n", `\n`)}
 	got, err := e.PrivateKeyPEM()
 	if err != nil {
 		t.Fatalf("PrivateKeyPEM: %v", err)
