@@ -228,3 +228,16 @@ func TestEscapeRawControlCharsLeavesValidJSONAlone(t *testing.T) {
 		t.Errorf("escapeRawControlChars = %q, want unchanged", got)
 	}
 }
+
+func TestBuildInstructionsCarriesWritingStyle(t *testing.T) {
+	got := buildInstructions(domain.ReviewRequest{RepoOwner: "a", RepoName: "b"})
+	for _, want := range []string{
+		"Simplified Technical English",
+		"at most 3 sentences",
+		"Never state a possibility as a fact",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("instructions missing %q", want)
+		}
+	}
+}
