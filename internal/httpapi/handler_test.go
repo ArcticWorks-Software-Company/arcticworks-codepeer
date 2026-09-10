@@ -349,6 +349,15 @@ func TestWebhookPRMergedClosesIssues(t *testing.T) {
 	if len(q.jobs) != 1 || q.jobs[0] != domain.JobIssueClose {
 		t.Fatalf("jobs = %v, want [close_pr_issues]", q.jobs)
 	}
+	p, ok := q.items[0].(domain.ClosePRIssuesPayload)
+	if !ok {
+		t.Fatalf("payload = %T, want domain.ClosePRIssuesPayload", q.items[0])
+	}
+	// Without the installation id the worker authenticates as installation 0
+	// and every close attempt 404s.
+	if p.InstallationID != 1 {
+		t.Errorf("installation id = %d, want 1", p.InstallationID)
+	}
 }
 
 func TestWebhookInstallationSynced(t *testing.T) {

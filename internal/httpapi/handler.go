@@ -196,10 +196,11 @@ func (h *Handler) handlePullRequest(ctx context.Context, body []byte) error {
 			return nil
 		}
 		return h.queue.Enqueue(ctx, domain.JobIssueClose, domain.ClosePRIssuesPayload{
-			RepoID:    ev.Repository.ID,
-			RepoOwner: ev.Repository.Owner.Login,
-			RepoName:  ev.Repository.Name,
-			PRNumber:  prNumber,
+			InstallationID: ev.Installation.ID,
+			RepoID:         ev.Repository.ID,
+			RepoOwner:      ev.Repository.Owner.Login,
+			RepoName:       ev.Repository.Name,
+			PRNumber:       prNumber,
 		})
 	default:
 		return nil

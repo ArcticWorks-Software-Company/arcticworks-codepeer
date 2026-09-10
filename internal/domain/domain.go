@@ -320,10 +320,11 @@ type FeedbackPayload struct {
 
 // ClosePRIssuesPayload is the payload for JobIssueClose.
 type ClosePRIssuesPayload struct {
-	RepoID    int64  `json:"repo_id"`
-	RepoOwner string `json:"repo_owner"`
-	RepoName  string `json:"repo_name"`
-	PRNumber  int    `json:"pr_number"`
+	InstallationID int64  `json:"installation_id"`
+	RepoID         int64  `json:"repo_id"`
+	RepoOwner      string `json:"repo_owner"`
+	RepoName       string `json:"repo_name"`
+	PRNumber       int    `json:"pr_number"`
 }
 
 // IssueCommandPayload is the payload for JobIssueCmd (approve/deny on an
